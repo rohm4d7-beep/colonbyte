@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 6 6 16;
+    --foreground: 226 232 240;
+    --input: 30 41 59;
+    --ring: 99 102 241;
+    --muted-foreground: 100 116 139;
+    --accent: 30 41 59;
+    --accent-foreground: 226 232 240;
+    --popover: 15 23 42;
+    --popover-foreground: 226 232 240;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    background-color: #060610;
+    color: #e2e8f0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer utilities {
+  .bg-size-200 {
+    background-size: 200% auto;
+  }
+  .bg-pos-100 {
+    background-position: right center;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.5);
+}
+
+/* Radix Select portal styling */
+[data-radix-popper-content-wrapper] {
+  z-index: 9999 !important;
+}
