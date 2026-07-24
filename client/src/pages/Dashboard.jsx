@@ -9,6 +9,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState({ total: 0, emails: 0, contacted: 0, converted: 0 });
   const [recent, setRecent] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const fetchStats = async () => {
     try {
@@ -29,6 +30,19 @@ export default function Dashboard() {
     fetchStats();
   }, []);
 
+  const handleReset = async () => {
+    if (!window.confirm('Delete all leads? This cannot be undone.')) return;
+    setResetting(true);
+    try {
+      await fetch(`${API_BASE}/api/leads`, { method: 'DELETE' });
+      await fetchStats();
+    } catch {
+      // ignore
+    } finally {
+      setResetting(false);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -40,16 +54,39 @@ export default function Dashboard() {
           <h1 className="text-xl font-semibold tracking-tight text-text-primary">Dashboard</h1>
           <p className="text-text-muted text-sm mt-0.5">Overview of your lead generation</p>
         </div>
-        <button
-          onClick={() => setModalOpen(true)}
-          className="px-4 py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
-          style={{
-            background: '#84cc16',
-            color: '#080808',
-          }}
-        >
-          Start New Scrape
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={handleReset}
+            disabled={resetting || stats.total === 0}
+            className="px-4 py-2.5 rounded-lg text-sm font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              background: 'transparent',
+              borderColor: 'var(--color-border)',
+              color: 'var(--color-text-muted)',
+            }}
+            onMouseEnter={e => {
+              if (resetting || stats.total === 0) return;
+              e.currentTarget.style.borderColor = 'rgba(248,113,113,0.4)';
+              e.currentTarget.style.color = '#f87171';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.borderColor = 'var(--color-border)';
+              e.currentTarget.style.color = 'var(--color-text-muted)';
+            }}
+          >
+            {resetting ? 'Resetting...' : 'Reset'}
+          </button>
+          <button
+            onClick={() => setModalOpen(true)}
+            className="px-4 py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
+            style={{
+              background: 'var(--color-accent)',
+              color: 'var(--color-base)',
+            }}
+          >
+            Start New Scrape
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-4 mb-8">

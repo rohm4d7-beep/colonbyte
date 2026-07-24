@@ -28,7 +28,7 @@ export default function ProgressFeed({ progress }) {
       <div className="w-full h-1.5 rounded-full bg-border overflow-hidden">
         <motion.div
           className="h-full rounded-full"
-          style={{ background: '#84cc16' }}
+          style={{ background: 'var(--color-accent)' }}
           initial={{ width: 0 }}
           animate={{ width: `${pct}%` }}
           transition={{ duration: 0.4, ease: 'easeOut' }}

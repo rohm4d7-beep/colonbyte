@@ -11,9 +11,9 @@ export default function Sidebar() {
     <aside className="fixed left-0 top-0 h-screen w-60 flex flex-col border-r border-border" style={{ background: 'var(--color-sidebar-bg)' }}>
       <div className="flex items-center gap-3 px-5 pt-6 pb-8">
         <div className="w-9 h-9 flex items-center justify-center rounded-lg overflow-hidden">
-          <img src="/logo.png" alt="logo" className="w-full h-full object-contain" />
+          <img src="/logo.jpg" alt="Colon Byte" className="w-full h-full object-cover" />
         </div>
-        <span className="text-text-primary font-semibold tracking-tight text-base">Devs Aura</span>
+        <span className="text-text-primary font-semibold tracking-tight text-base">Colon Byte</span>
       </div>
 
       <nav className="flex-1 px-3 space-y-1">

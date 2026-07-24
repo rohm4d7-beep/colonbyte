@@ -136,8 +136,8 @@ export default function ScrapeModal({ isOpen, onClose, onDone }) {
                 disabled={loading || !keyword.trim()}
                 className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
                 style={{
-                  background: loading ? 'var(--color-btn-secondary-bg)' : '#84cc16',
-                  color: loading ? 'var(--color-btn-secondary-text)' : '#080808',
+                  background: loading ? 'var(--color-btn-secondary-bg)' : 'var(--color-accent)',
+                  color: loading ? 'var(--color-btn-secondary-text)' : 'var(--color-base)',
                 }}
               >
                 {loading && (

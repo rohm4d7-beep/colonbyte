@@ -1,4 +1,4 @@
-# Devs Aura — Lead Generation Tool (Phase 1)
+# Colon Byte — Lead Generation Tool (Phase 1)
 
 A premium lead generation tool that scrapes business leads from Google Maps, extracts emails from business websites, and manages them in a dark-themed dashboard.
 
