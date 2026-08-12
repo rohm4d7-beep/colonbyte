@@ -2,10 +2,94 @@ import { chromium } from 'playwright';
 
 const MAX_RESULTS = 20;
 
+// Google's own UI embeds icon-font glyphs as literal inline text nodes right before
+// labels like the address (e.g. a leading U+E0C8) — these are Private Use Area
+// codepoints with no meaning outside Google's icon font, so .textContent() picks up
+// visible garbage. Strip all PUA ranges (BMP + both supplementary planes).
+function stripIconGlyphs(text) {
+  return (text || '').replace(/[\u{E000}-\u{F8FF}\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/gu, '').trim();
+}
+
 function guessCountry(address) {
   if (!address) return '';
   const parts = address.split(/,|\s-\s/).map(p => p.trim()).filter(Boolean);
   return parts[parts.length - 1] || '';
+}
+
+function extractCoordinates(url) {
+  // A direct goto() to a place URL keeps Google's `!3d<lat>!4d<lng>` data payload
+  // form; the `@lat,lng,zoom` form only appears after in-app SPA navigation. Try both.
+  const dataMatch = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (dataMatch) return { lat: parseFloat(dataMatch[1]), lng: parseFloat(dataMatch[2]) };
+
+  const atMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (atMatch) return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
+
+  return null;
+}
+
+function extractPlaceId(url) {
+  const match = url.match(/!1s(0x[0-9a-f]+:0x[0-9a-f]+)/i);
+  return match ? match[1] : '';
+}
+
+function parseLeadingNumber(text) {
+  if (!text) return null;
+  const match = text.replace(/,/g, '').match(/(\d+(\.\d+)?)/);
+  return match ? parseFloat(match[1]) : null;
+}
+
+function upsizePhotoUrl(src) {
+  if (!src) return '';
+  // Google's photo URLs take a `=w<width>-h<height>-...` size suffix — request a
+  // larger render than the small thumbnail Maps loads by default, for demo-site use.
+  return src.replace(/=w\d+-h\d+.*$/, '=w1200-h800-k-no');
+}
+
+async function extractListingDetails(page) {
+  const ratingAria = await page
+    .locator('span[role="img"][aria-label*="stars"]')
+    .first()
+    .getAttribute('aria-label')
+    .catch(() => null);
+
+  const reviewsAria = await page
+    .locator('span[role="img"][aria-label*="review"]')
+    .first()
+    .getAttribute('aria-label')
+    .catch(() => null);
+
+  const category = await page
+    .locator('button[jsaction*="category"]')
+    .first()
+    .textContent()
+    .catch(() => '') || '';
+
+  const openingHoursSummary = await page
+    .locator('span.ZDu9vd, div.MkV9')
+    .first()
+    .textContent()
+    .catch(() => '') || '';
+
+  const photoCount = await page
+    .locator('button[jsaction*="heroHeaderImage"], [data-photo-index]')
+    .count()
+    .catch(() => 0);
+
+  const heroPhotoSrc = await page
+    .locator('button[jsaction*="heroHeaderImage"] img')
+    .first()
+    .getAttribute('src')
+    .catch(() => null);
+
+  return {
+    rating: parseLeadingNumber(ratingAria),
+    reviewCount: parseLeadingNumber(reviewsAria),
+    category: stripIconGlyphs(category),
+    openingHoursSummary: stripIconGlyphs(openingHoursSummary),
+    photoCount,
+    photos: heroPhotoSrc ? [upsizePhotoUrl(heroPhotoSrc)] : [],
+  };
 }
 
 function resolveWebsite(href) {
@@ -44,13 +128,14 @@ async function autoScroll(page, feedSelector, targetCount) {
   }
 }
 
-export async function scrapeGoogleMaps(keyword, { onProgress, processItem } = {}) {
+export async function scrapeGoogleMaps(keyword, { onProgress, processItem, targetCountry } = {}) {
   const browser = await chromium.launch({ headless: true });
   const results = [];
 
   try {
     const page = await browser.newPage({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' });
-    const url = `https://www.google.com/maps/search/${encodeURIComponent(keyword)}`;
+    const searchTerm = targetCountry ? `${keyword} ${targetCountry}` : keyword;
+    const url = `https://www.google.com/maps/search/${encodeURIComponent(searchTerm)}`;
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     const feedSelector = 'div[role="feed"]';
@@ -93,12 +178,20 @@ export async function scrapeGoogleMaps(keyword, { onProgress, processItem } = {}
           .textContent()
           .catch(() => '') || '';
 
+        const placeUrl = page.url();
+        const coords = extractCoordinates(placeUrl);
+        const details = await extractListingDetails(page);
+
         item = {
-          businessName: businessName.trim(),
+          businessName: stripIconGlyphs(businessName),
           website: website || '',
           phone,
-          address: address.trim(),
-          country: guessCountry(address.trim()),
+          address: stripIconGlyphs(address),
+          country: guessCountry(stripIconGlyphs(address)),
+          placeId: extractPlaceId(placeUrl),
+          lat: coords?.lat ?? null,
+          lng: coords?.lng ?? null,
+          ...details,
         };
 
         if (item.businessName) {

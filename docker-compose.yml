@@ -1,0 +1,47 @@
+name: colonbyte-leads
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build: ./server
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    env_file:
+      - ./server/.env
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/devsaura-leads
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+
+  client:
+    build: ./leadforge
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      VITE_API_PROXY_TARGET: http://server:5000
+    ports:
+      - "3002:3000"
+    volumes:
+      - ./leadforge:/app
+      - /app/node_modules
+
+volumes:
+  mongodata:

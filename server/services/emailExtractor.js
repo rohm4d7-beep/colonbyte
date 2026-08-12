@@ -1,7 +1,11 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 
-const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+// TLD is intentionally lowercase-only: real domains render lowercase, while text
+// concatenated onto the match with no separator (e.g. a "Call" button label glued
+// onto "info@site.com" during text extraction) reliably starts uppercase, so this
+// stops the greedy match at the real domain boundary instead of swallowing it.
+const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,24}/g;
 const IGNORED_EXTENSIONS = /\.(png|jpg|jpeg|gif|svg|webp|css|js)$/i;
 const JUNK_DOMAINS = /(sentry|wixpress|schema\.org|w3\.org|example\.(com|org|net)|domain\.com|yourdomain|godaddy|placeholder|test\.com|email\.com|localhost|\.(png|jpg|jpeg|gif|svg|webp|css|js))$/i;
 
@@ -11,10 +15,16 @@ function looksReal(email) {
 }
 
 function extractFromMailto($) {
-  const hrefs = $('a[href^="mailto:"]')
+  // Re-run the href value through EMAIL_RE rather than trusting it verbatim — sites
+  // sometimes ship malformed mailto hrefs with trailing garbage concatenated in
+  // (e.g. href="mailto:info@site.aeRESERVATION").
+  const emails = $('a[href^="mailto:"]')
     .toArray()
-    .map(el => ($(el).attr('href') || '').replace('mailto:', '').split('?')[0].trim());
-  return hrefs.filter(Boolean).filter(looksReal);
+    .map(el => {
+      const raw = ($(el).attr('href') || '').replace('mailto:', '').split('?')[0].trim();
+      return raw.match(EMAIL_RE)?.[0] || '';
+    });
+  return emails.filter(Boolean).filter(looksReal);
 }
 
 function extractFromText($) {
