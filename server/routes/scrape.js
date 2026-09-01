@@ -27,7 +27,7 @@ function broadcast(jobId, payload) {
 }
 
 async function runJob(jobId, keyword, targetCountry) {
-  const counts = { rejected: 0, duplicates: 0, saved: 0 };
+  const counts = { rejected: 0, duplicates: 0, saved: 0, hasWebsite: 0, unverified: 0 };
 
   try {
     await scrapeGoogleMaps(keyword, {
@@ -47,9 +47,28 @@ async function runJob(jobId, keyword, targetCountry) {
           return;
         }
 
-        const [email, websiteAnalysis, duplicate] = await Promise.all([
+        // This is a lead-gen tool for businesses that need a NEW website — one CONFIRMED to
+        // already have a solid site is not a prospect, so check that first and skip
+        // everything else (email extraction, dedup lookup, paid AI calls) for it. Don't even
+        // save it as a lead.
+        //
+        // 'unverified' (site is up but blocked our check, e.g. WAF/bot protection) is NOT the
+        // same claim — we have no evidence either way, so it falls through instead of being
+        // silently dropped: it still gets saved for manual review, just without the paid AI
+        // report/demo (see the highPriority gate below), so it can't be mistaken for a
+        // confirmed opportunity either.
+        const websiteAnalysis = await analyzeWebsite(item.website);
+        const confirmedHasWebsite = !websiteAnalysis.highPriority && websiteAnalysis.status !== 'unverified';
+        if (confirmedHasWebsite) {
+          counts.hasWebsite += 1;
+          return;
+        }
+        if (websiteAnalysis.status === 'unverified') {
+          counts.unverified += 1;
+        }
+
+        const [email, duplicate] = await Promise.all([
           extractEmailFromWebsite(item.website),
-          analyzeWebsite(item.website),
           findDuplicateLead({
             businessName: item.businessName,
             phone: item.phone,
@@ -89,9 +108,11 @@ async function runJob(jobId, keyword, targetCountry) {
         // (rather than '') keeps the sparse unique index from colliding on empty values.
         if (item.placeId) fields.placeId = item.placeId;
 
-        // Only high-priority leads (poor/missing website) get an automatic AI report +
-        // demo site — keeps the paid API calls proportional to actual opportunities.
-        // Others stay 'pending' and can be generated on demand via the leads routes.
+        // Only confirmed high-priority leads get the automatic AI report + demo site (paid
+        // calls) — an 'unverified' lead reaching here has no confirmed opportunity yet, so it
+        // stays 'pending' and can be generated on demand via the leads routes once someone's
+        // checked the site by hand (routes/leads.js also blocks outreach on non-highPriority
+        // leads regardless).
         if (websiteAnalysis.highPriority) {
           const [aiAnalysis, demoSite] = await Promise.all([
             analyzeLead(fields),

@@ -6,9 +6,21 @@ import { analyzeLead } from '../services/aiAnalysis.js';
 import { generateDemoContent } from '../services/demoContentGenerator.js';
 import { generateOutreach } from '../services/outreachGenerator.js';
 import { sendOutreachEmail } from '../services/emailSender.js';
+import { analyzeWebsite } from '../services/websiteAnalyzer.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
 const router = Router();
+
+// Old/legacy leads can reach here with websiteStatus never computed (predates the analyzer,
+// or a prior failed run). Never let the AI report/demo/outreach be generated on top of that
+// gap — it's exactly how a lead with a real website got written up as having none.
+async function ensureWebsiteAnalyzed(lead) {
+  if (lead.websiteStatus) return;
+  const result = await analyzeWebsite(lead.website);
+  lead.websiteStatus = result.status;
+  lead.websiteQualityScore = result.websiteQualityScore;
+  lead.highPriority = result.highPriority;
+}
 
 const EXPORT_FIELDS = [
   'businessName',
@@ -114,6 +126,7 @@ router.post('/:id/analyze', analyzeLimiter, asyncHandler(async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
 
+  await ensureWebsiteAnalyzed(lead);
   const aiAnalysis = await analyzeLead(lead);
   lead.aiAnalysis = aiAnalysis;
   await lead.save();
@@ -125,6 +138,7 @@ router.post('/:id/generate-demo', analyzeLimiter, asyncHandler(async (req, res) 
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
 
+  await ensureWebsiteAnalyzed(lead);
   const demoSite = await generateDemoContent(lead);
   lead.demoSite = demoSite;
   await lead.save();
@@ -135,6 +149,11 @@ router.post('/:id/generate-demo', analyzeLimiter, asyncHandler(async (req, res) 
 router.post('/:id/generate-outreach', analyzeLimiter, asyncHandler(async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (!lead.highPriority) {
+    return res.status(409).json({
+      error: 'Outreach is only for high-priority leads (poor or missing website) — this business already has a solid site.',
+    });
+  }
   if (lead.aiAnalysis?.status !== 'completed' || lead.demoSite?.status !== 'completed') {
     return res.status(409).json({ error: 'Run AI analysis and generate the demo site before drafting outreach.' });
   }
@@ -186,6 +205,11 @@ router.post('/:id/send-outreach', sendLimiter, asyncHandler(async (req, res) => 
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
   if (!lead.email) return res.status(400).json({ error: 'This lead has no email address.' });
+  if (!lead.highPriority) {
+    return res.status(409).json({
+      error: 'Outreach is only for high-priority leads (poor or missing website) — this business already has a solid site.',
+    });
+  }
   if (lead.outreach?.status === 'sent') {
     return res.status(409).json({ error: 'This outreach email has already been sent.' });
   }

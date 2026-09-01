@@ -1,5 +1,9 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { chromium } from 'playwright';
+
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
 const SOCIAL_HOSTS = {
   'facebook.com': 'facebook_only',
@@ -16,6 +20,55 @@ function hostnameOf(website) {
     return url.hostname.replace(/^www\./, '').toLowerCase();
   } catch {
     return '';
+  }
+}
+
+// A self-identifying bot UA (e.g. the old "ColonByteBot/1.0") gets flat-out blocked (403) by
+// basic WAFs/CDNs (Cloudflare, Wordfence, etc.) on plenty of perfectly working sites — that
+// false 403 used to get misclassified as 'broken'. A real browser UA + standard headers
+// clears most of those.
+// Returns { ok, html } on a real page load; otherwise { ok: false, blocked } — `blocked: true`
+// means we got an actual HTTP response back (the site is up, it just refused us — that's
+// evidence of bot protection, not a broken site); `blocked: false` means no response reached
+// us at all (DNS failure, connection refused, timeout — that's evidence the site is genuinely
+// down). This distinction is what separates 'broken' from 'unverified' below.
+async function fetchViaAxios(url) {
+  try {
+    const res = await axios.get(url, {
+      timeout: 8000,
+      maxRedirects: 3,
+      headers: {
+        'User-Agent': BROWSER_UA,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      validateStatus: () => true,
+    });
+    if (res.status < 400 && typeof res.data === 'string') return { ok: true, html: res.data };
+    return { ok: false, blocked: true };
+  } catch {
+    return { ok: false, blocked: false };
+  }
+}
+
+// Enterprise WAFs (Akamai, Cloudflare Enterprise, PerimeterX) block plain HTTP clients on
+// TLS/behavioral fingerprints no amount of header-spoofing gets past — a real perfectly-fine
+// site (e.g. a hotel chain's official page) can still 403 a raw axios request. Only a real
+// browser engine clears that, so fall back to headless Chromium (already a project dependency
+// for the Maps scraper, which faces the same class of bot detection) before calling it broken.
+async function fetchViaBrowser(url) {
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({ userAgent: BROWSER_UA });
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    if (!response) return { ok: false, blocked: false };
+    if (response.status() < 400) return { ok: true, html: await page.content() };
+    return { ok: false, blocked: true };
+  } catch {
+    return { ok: false, blocked: false };
+  } finally {
+    if (browser) await browser.close();
   }
 }
 
@@ -38,23 +91,23 @@ export async function analyzeWebsite(website) {
 
   const url = website.startsWith('http') ? website : `https://${website}`;
 
-  let res;
-  try {
-    res = await axios.get(url, {
-      timeout: 8000,
-      maxRedirects: 3,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ColonByteBot/1.0)' },
-      validateStatus: (s) => s < 500,
-    });
-  } catch {
+  const first = await fetchViaAxios(url);
+  const second = first.ok ? null : await fetchViaBrowser(url);
+  const result = first.ok ? first : second;
+
+  if (!result.ok) {
+    // Actively blocked (site responded, just refused us) is not the same claim as "broken" —
+    // don't tell a business their working site is broken just because it has bot protection.
+    // Treat it as unverified and NOT highPriority: we have no evidence their site is bad, and
+    // a business with enterprise-grade bot protection is unlikely to be this agency's target
+    // customer anyway, so it shouldn't get pitched a replacement site on a false premise.
+    if (first.blocked || second?.blocked) {
+      return { status: 'unverified', websiteQualityScore: 0, highPriority: false };
+    }
     return { status: 'broken', websiteQualityScore: 0, highPriority: true };
   }
 
-  if (!res || res.status >= 400 || typeof res.data !== 'string') {
-    return { status: 'broken', websiteQualityScore: 0, highPriority: true };
-  }
-
-  const $ = cheerio.load(res.data);
+  const $ = cheerio.load(result.html);
 
   let score = 100;
   if (!url.startsWith('https://')) score -= 15;

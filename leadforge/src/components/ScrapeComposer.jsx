@@ -129,6 +129,8 @@ export default function ScrapeComposer({ onDone }) {
   const rejected = progress?.rejected || 0;
   const duplicates = progress?.duplicates || 0;
   const saved = progress?.saved || 0;
+  const hasWebsite = progress?.hasWebsite || 0;
+  const unverified = progress?.unverified || 0;
   const pct = found > 0 ? Math.min(Math.round((processed / found) * 100), 100) : jobId ? 6 : 0;
   const statusLine = found === 0 ? 'Searching Google Maps for' : 'Verifying & extracting for';
   const errorMessage = error || 'Something went wrong. Check the server logs.';
@@ -171,6 +173,16 @@ export default function ScrapeComposer({ onDone }) {
                     {' '}· <span className="font-mono tnum">{duplicates}</span> merged
                   </span>
                 )}
+                {hasWebsite > 0 && (
+                  <span className="text-text-2">
+                    {' '}· <span className="font-mono tnum">{hasWebsite}</span> already have a website
+                  </span>
+                )}
+                {unverified > 0 && (
+                  <span className="text-text-2">
+                    {' '}· <span className="font-mono tnum">{unverified}</span> saved but couldn't verify site
+                  </span>
+                )}
                 {rejected > 0 && (
                   <span className="text-text-2">
                     {' '}· <span className="font-mono tnum">{rejected}</span> rejected (wrong country)
@@ -187,6 +199,12 @@ export default function ScrapeComposer({ onDone }) {
                 ) : (
                   <>
                     {statusLine} <span className="text-text">"{keyword}"</span>
+                    {hasWebsite > 0 && (
+                      <span className="text-text-3"> · {hasWebsite} have a website</span>
+                    )}
+                    {unverified > 0 && (
+                      <span className="text-text-3"> · {unverified} unverified</span>
+                    )}
                     {rejected > 0 && (
                       <span className="text-text-3"> · {rejected} rejected</span>
                     )}

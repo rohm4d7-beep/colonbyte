@@ -1,6 +1,11 @@
 import { chromium } from 'playwright';
 
-const MAX_RESULTS = 20;
+// Most businesses in any category already have a website, and routes/scrape.js now
+// discards those before saving (this tool only wants no-website/poor-website leads) — so
+// visiting only 20 raw listings would leave very few actual leads. Visit more candidates
+// per job to compensate; ~80-100 is roughly what a single Maps local-pack search can
+// surface via scrolling before results stop growing.
+const MAX_RESULTS = 80;
 
 // Google's own UI embeds icon-font glyphs as literal inline text nodes right before
 // labels like the address (e.g. a leading U+E0C8) — these are Private Use Area
@@ -107,7 +112,10 @@ async function autoScroll(page, feedSelector, targetCount) {
   let previousCount = 0;
   let stagnantRounds = 0;
 
-  for (let i = 0; i < 15; i++) {
+  // Raised alongside MAX_RESULTS (80) — the stagnant-rounds break below still stops early
+  // once Maps genuinely has no more results, so this only affects how long we're willing to
+  // keep trying, not how long we wait when there's nothing left to load.
+  for (let i = 0; i < 50; i++) {
     const count = await page.locator(`${feedSelector} a[href*="/maps/place/"]`).count();
     if (count >= targetCount) break;
 

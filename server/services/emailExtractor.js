@@ -35,10 +35,16 @@ function extractFromText($) {
 }
 
 async function fetchPage(url) {
+  // Same fix as websiteAnalyzer.js: a self-identifying bot UA gets flat-out 403'd by basic
+  // WAFs on plenty of working sites, silently starving this of an email it could've found.
   const res = await axios.get(url, {
     timeout: 8000,
     maxRedirects: 3,
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; DevsAuraBot/1.0)' },
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
     validateStatus: s => s < 500,
   });
   return res.data;

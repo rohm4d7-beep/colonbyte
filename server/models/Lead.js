@@ -7,6 +7,7 @@ export const WEBSITE_STATUSES = [
   'instagram_only',
   'google_business_only',
   'broken',
+  'unverified',
   'outdated',
   'has_website',
 ];
@@ -79,7 +80,11 @@ const leadSchema = new mongoose.Schema(
     openingHoursSummary: { type: String, default: '' },
     photoCount: { type: Number, default: 0 },
     photos: { type: [String], default: [] },
-    websiteStatus: { type: String, enum: WEBSITE_STATUSES, default: 'none' },
+    // No default: an absent value means "never actually analyzed" and must stay
+    // distinguishable from 'none' (analyzeWebsite() confirmed no website exists). A default
+    // here would get silently materialized by Mongoose on any load+save of an old/unanalyzed
+    // lead, permanently baking a fabricated "no website" verdict into real data.
+    websiteStatus: { type: String, enum: WEBSITE_STATUSES },
     websiteQualityScore: { type: Number, default: 0 },
     highPriority: { type: Boolean, default: false },
     aiAnalysis: { type: aiAnalysisSchema, default: () => ({}) },

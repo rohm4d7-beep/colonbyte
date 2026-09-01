@@ -191,7 +191,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const demoStatus = demoSite?.status || 'pending';
   const outreach = lead?.outreach;
   const outreachStatus = outreach?.status || 'pending';
-  const outreachReady = analysisStatus === 'completed' && demoStatus === 'completed';
+  const outreachReady = analysisStatus === 'completed' && demoStatus === 'completed' && !!lead?.highPriority;
 
   return (
     <AnimatePresence>
@@ -423,6 +423,11 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                   </div>
                 ) : outreachStatus === 'drafted' ? (
                   <div className="space-y-2.5">
+                    {!lead.highPriority && (
+                      <p className="text-[12px] rounded-md p-2.5" style={{ color: 'var(--color-danger)', background: 'var(--color-surface-2)' }}>
+                        This lead already has a solid website — drafted before outreach was restricted to high-priority leads. Sending is blocked.
+                      </p>
+                    )}
                     <input
                       value={subject}
                       onChange={(e) => setSubject(e.target.value)}
@@ -443,7 +448,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                     <div className="flex items-center gap-3">
                       <button
                         onClick={handleSendOutreach}
-                        disabled={sending || savingDraft || !subject.trim() || !body.trim() || !lead.email}
+                        disabled={sending || savingDraft || !subject.trim() || !body.trim() || !lead.email || !lead.highPriority}
                         className="flex-1 flex items-center justify-center gap-1.5 h-8 px-3.5 rounded text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
                         style={{ background: 'var(--color-accent)', color: '#ffffff' }}
                       >
@@ -473,7 +478,9 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                 ) : (
                   <div className="rounded-md border border-dashed p-4 flex flex-col items-center gap-2.5 text-center" style={{ borderColor: 'var(--color-border-strong)' }}>
                     <p className="text-[12.5px] text-text-3">
-                      {!outreachReady
+                      {analysisStatus === 'completed' && demoStatus === 'completed' && !lead.highPriority
+                        ? 'This lead already has a solid website — outreach is only for high-priority leads (poor or missing site).'
+                        : !outreachReady
                         ? 'Complete AI analysis and demo generation first.'
                         : outreachStatus === 'failed'
                         ? 'Draft generation failed — try again.'
