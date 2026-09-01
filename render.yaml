@@ -19,11 +19,9 @@ services:
         sync: false
       - key: RESEND_WEBHOOK_SECRET
         sync: false
-      # PUBLIC_BASE_URL must be this service's own Render URL (https://leadforge-server-xxxx.onrender.com)
-      # so outreach emails link somewhere real — Render only assigns that URL after the first
-      # deploy, so leave the placeholder below and correct it in the dashboard once you know it.
+      # This service's actual assigned Render URL — outreach emails link here.
       - key: PUBLIC_BASE_URL
-        value: https://leadforge-server.onrender.com
+        value: https://leadforge-server-kzk4.onrender.com
       - key: GROQ_MODEL
         value: openai/gpt-oss-20b
       # The dashboard (leadforge/) stays local-only — this only needs to allow whatever
