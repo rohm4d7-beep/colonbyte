@@ -226,7 +226,7 @@ export default function ScrapeComposer({ onDone }) {
                 value={keyword}
                 onChange={e => setKeyword(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleStart(); }}
-                placeholder="Find leads on Google Maps — try “dentists in Dubai”"
+                placeholder="Business category — try “dentists” or “boutique hotels” (pick the country on the right)"
                 className="flex-1 min-w-0 bg-transparent text-[13.5px] text-text placeholder:text-text-3 outline-none"
               />
               <div className="w-px h-4 shrink-0" style={{ background: 'var(--color-border)' }} />
