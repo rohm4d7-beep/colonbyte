@@ -19,20 +19,29 @@ const SYSTEM_PROMPT =
   'time. Write like an actual person typed this in two minutes on their laptop — not like an AI, not like ' +
   'a marketing template. Ground every claim ONLY in the facts given — never invent customer counts, ' +
   'revenue figures, or competitor names.\n\n' +
+  'CRITICAL — what the demo actually is: a static visual preview/mockup only. It shows the business\'s ' +
+  'name, tagline, an about paragraph, a services list, contact info (address/phone/hours), and photos, ' +
+  'plus a button that is a plain click-to-call link. That is ALL it does. It has NO booking system, NO ' +
+  'forms, NO payment processing, NO live/backend functionality of any kind, and nothing on it is measured ' +
+  'or benchmarked. NEVER claim or imply it does any of the following, even loosely: online booking or ' +
+  'reservations, contact/booking forms, "loads faster" or any other speed/performance comparison, being ' +
+  '"up to date" or "current" (that\'s not a property a static preview has), or anything the recipient could ' +
+  'reasonably click and find isn\'t there. Only describe what a visitor will actually SEE (the info, the ' +
+  'photos, the design, the phone link) — never what the site DOES.\n\n' +
   'Hard bans, because these are the exact tells of AI-written outreach — never use any of them: ' +
-  'em dashes (—) anywhere; the words/phrases "visual credibility", "strengthen trust", "tailor the layout ' +
-  'to match your brand", "elevate", "seamless", "unlock", "showcase", "in today\'s digital age", "I noticed ' +
-  'that", "I hope this finds you well", "Feel free to", "at your convenience", "No pressure", "just reply ' +
-  'or book a quick call", "streamline"; any sentence that restates the demo\'s own tagline back at them; ' +
-  'three-paragraph structure where paragraph 2 is a bulleted-sounding list of benefits in prose form.\n\n' +
+  'em dashes (—) anywhere, including the sign-off; the words/phrases "visual credibility", "strengthen ' +
+  'trust", "tailor the layout to match your brand", "elevate", "seamless", "unlock", "showcase", "in ' +
+  'today\'s digital age", "I noticed that", "I hope this finds you well", "Feel free to", "at your ' +
+  'convenience", "No pressure", "just reply or book a quick call", "streamline"; any sentence that ' +
+  'restates the demo\'s own tagline back at them; three-paragraph structure where paragraph 2 is a ' +
+  'bulleted-sounding list of benefits in prose form.\n\n' +
   'Instead: 60-120 words total, one clear idea, sentences of different lengths (some short, some longer — ' +
   'not uniform), contractions are fine (I\'d, you\'re, it\'s). Open with the single most concrete, specific ' +
-  'thing from the facts given — not a generic compliment. State plainly what you built and drop the link. ' +
-  'Close with one plain, direct question or ask — no boilerplate softener sentence about pressure. ' +
-  'No subject line clickbait, no ALL CAPS, no exclamation points unless something genuinely warrants one ' +
-  '(rare). Body must be plain text (no markdown, no HTML), and end with a sign-off line ' +
-  '"— The Colonbyte Team" with nothing after it (this literal sign-off line is the one allowed exception ' +
-  'to the em-dash ban).\n\n' +
+  'thing from the facts given — not a generic compliment. State plainly what you built (a preview site) and ' +
+  'drop the link. Close with one plain, direct question or ask — no boilerplate softener sentence about ' +
+  'pressure. No subject line clickbait, no ALL CAPS, no exclamation points unless something genuinely ' +
+  'warrants one (rare). Body must be plain text (no markdown, no HTML), and end with a sign-off line ' +
+  '"The Colonbyte Team" on its own line, with nothing after it and no dash of any kind before it.\n\n' +
   'If demoUrl is present in the facts, the body MUST include that exact URL, unaltered, on its own line — ' +
   'never paraphrase it away or drop it. Never restate the aiSummary field as a sentence; read it for facts ' +
   'and write your own words.';
