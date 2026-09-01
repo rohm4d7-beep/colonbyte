@@ -5,7 +5,16 @@ import { chromium } from 'playwright';
 // visiting only 20 raw listings would leave very few actual leads. Visit more candidates
 // per job to compensate; ~80-100 is roughly what a single Maps local-pack search can
 // surface via scrolling before results stop growing.
-const MAX_RESULTS = 80;
+const MAX_RESULTS = 150;
+
+// None of the per-listing locator calls below specify a timeout, so a listing simply missing
+// one of these fields (no rating shown, no category button, etc. — completely normal) was
+// paying Playwright's default 30s actionability wait before the .catch() gave up on it. With
+// up to ~10 such lookups per item, a handful of misses alone could stall a single lead for
+// minutes; multiply by a full batch and a job crawls. The page has already loaded (goto +
+// settle wait below) by the time these run, so if an element isn't there within 2s it isn't
+// coming — fail fast instead of waiting out the default.
+const FIELD_TIMEOUT = 2000;
 
 // Google's own UI embeds icon-font glyphs as literal inline text nodes right before
 // labels like the address (e.g. a leading U+E0C8) — these are Private Use Area
@@ -55,25 +64,25 @@ async function extractListingDetails(page) {
   const ratingAria = await page
     .locator('span[role="img"][aria-label*="stars"]')
     .first()
-    .getAttribute('aria-label')
+    .getAttribute('aria-label', { timeout: FIELD_TIMEOUT })
     .catch(() => null);
 
   const reviewsAria = await page
     .locator('span[role="img"][aria-label*="review"]')
     .first()
-    .getAttribute('aria-label')
+    .getAttribute('aria-label', { timeout: FIELD_TIMEOUT })
     .catch(() => null);
 
   const category = await page
     .locator('button[jsaction*="category"]')
     .first()
-    .textContent()
+    .textContent({ timeout: FIELD_TIMEOUT })
     .catch(() => '') || '';
 
   const openingHoursSummary = await page
     .locator('span.ZDu9vd, div.MkV9')
     .first()
-    .textContent()
+    .textContent({ timeout: FIELD_TIMEOUT })
     .catch(() => '') || '';
 
   const photoCount = await page
@@ -84,7 +93,7 @@ async function extractListingDetails(page) {
   const heroPhotoSrc = await page
     .locator('button[jsaction*="heroHeaderImage"] img')
     .first()
-    .getAttribute('src')
+    .getAttribute('src', { timeout: FIELD_TIMEOUT })
     .catch(() => null);
 
   return {
@@ -180,26 +189,26 @@ export async function scrapeGoogleMaps(keyword, { onProgress, processItem, targe
         await page.goto(uniqueLinks[i], { waitUntil: 'domcontentloaded', timeout: 20000 });
         await page.waitForTimeout(600);
 
-        const businessName = await page.locator('h1').first().textContent().catch(() => '') || '';
+        const businessName = await page.locator('h1').first().textContent({ timeout: FIELD_TIMEOUT }).catch(() => '') || '';
 
         const websiteHref = await page
           .locator('a[data-item-id="authority"]')
           .first()
-          .getAttribute('href')
+          .getAttribute('href', { timeout: FIELD_TIMEOUT })
           .catch(() => null);
         const website = resolveWebsite(websiteHref);
 
         const phoneItemId = await page
           .locator('button[data-item-id^="phone:tel:"]')
           .first()
-          .getAttribute('data-item-id')
+          .getAttribute('data-item-id', { timeout: FIELD_TIMEOUT })
           .catch(() => null);
         const phone = phoneItemId ? phoneItemId.replace('phone:tel:', '') : '';
 
         const address = await page
           .locator('button[data-item-id="address"]')
           .first()
-          .textContent()
+          .textContent({ timeout: FIELD_TIMEOUT })
           .catch(() => '') || '';
 
         const placeUrl = page.url();
