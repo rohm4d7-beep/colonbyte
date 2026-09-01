@@ -40,8 +40,8 @@ npm run dev                # http://localhost:3000, proxies /api to :5000
 | `PORT` | Server port (default `5000`) |
 | `MONGODB_URI` | MongoDB connection string |
 | `CLIENT_ORIGIN` | Allowed CORS origin for the frontend |
-| `OPENAI_API_KEY` | OpenAI API key — powers AI business analysis. Leave blank to disable (leads stay "pending") |
-| `OPENAI_MODEL` | Model for analysis, default `gpt-4o-mini` |
+| `GROQ_API_KEY` | Groq API key — powers AI business analysis. Leave blank to disable (leads stay "pending") |
+| `GROQ_MODEL` | Model for analysis, default `openai/gpt-oss-20b` (strict JSON schema support required) |
 
 ## How to Use
 
@@ -85,7 +85,7 @@ server/                            (sibling directory, see ../server)
     countryVerification.js         — Coordinate/phone/address multi-signal country check
     leadDedup.js                   — placeId/phone/domain/geo+name dedup
     websiteAnalyzer.js             — Rule-based website quality scoring
-    aiAnalysis.js                  — OpenAI structured-output business analysis
+    aiAnalysis.js                  — Groq structured-output business analysis
     emailExtractor.js              — Axios + Cheerio email extraction
   models/
     Lead.js                        — Mongoose schema
@@ -93,6 +93,6 @@ server/                            (sibling directory, see ../server)
 
 ## Tech Stack
 
-- **Backend:** Node.js, Express, MongoDB/Mongoose, Playwright, Cheerio, Axios, json2csv, OpenAI API (fetch, no SDK)
+- **Backend:** Node.js, Express, MongoDB/Mongoose, Playwright, Cheerio, Axios, json2csv, Groq API (fetch, no SDK)
 - **Frontend:** React, React Router, Tailwind CSS, Framer Motion
 - **Font:** Inter + JetBrains Mono (Google Fonts)

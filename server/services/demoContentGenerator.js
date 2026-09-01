@@ -1,6 +1,6 @@
 import { TEMPLATE_KEYS, ACCENT_COLORS } from '../constants/demoOptions.js';
 
-const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 const RESPONSE_SCHEMA = {
   name: 'demo_site_content',
@@ -47,26 +47,27 @@ function buildUserPrompt(lead) {
 }
 
 /**
- * Same Structured Outputs pattern as services/aiAnalysis.js — never throws, callers get
- * { status: 'failed' } on any error so a bad key or rate limit never breaks the scrape
- * pipeline. templateKey/accentColor are constrained to curated enums (see
- * constants/demoOptions.js) so the AI can never pick an unreadable color combination.
+ * Same Structured Outputs pattern as services/aiAnalysis.js (Groq, OpenAI-compatible
+ * endpoint) — never throws, callers get { status: 'failed' } on any error so a bad key or
+ * rate limit never breaks the scrape pipeline. templateKey/accentColor are constrained to
+ * curated enums (see constants/demoOptions.js) so the AI can never pick an unreadable color
+ * combination.
  */
 export async function generateDemoContent(lead) {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     return { status: 'failed' };
   }
 
   try {
-    const res = await fetch(OPENAI_API_URL, {
+    const res = await fetch(GROQ_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: buildUserPrompt(lead) },
@@ -79,7 +80,7 @@ export async function generateDemoContent(lead) {
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
-      console.error('[demoContentGenerator] OpenAI API error:', res.status, errBody.slice(0, 300));
+      console.error('[demoContentGenerator] Groq API error:', res.status, errBody.slice(0, 300));
       return { status: 'failed' };
     }
 

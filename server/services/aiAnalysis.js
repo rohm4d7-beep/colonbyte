@@ -1,4 +1,4 @@
-const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 const RESPONSE_SCHEMA = {
   name: 'business_analysis',
@@ -60,25 +60,27 @@ function clampScore(value) {
 }
 
 /**
- * Calls OpenAI's Structured Outputs (strict json_schema) so the response always matches
- * the aiAnalysis shape — never throws, callers just get { status: 'failed' } on any error
- * so a bad/missing key or a rate limit never breaks the scrape pipeline.
+ * Calls Groq's Structured Outputs (strict json_schema, OpenAI-compatible endpoint) so the
+ * response always matches the aiAnalysis shape — never throws, callers just get
+ * { status: 'failed' } on any error so a bad/missing key or a rate limit never breaks the
+ * scrape pipeline. strict json_schema is only supported on the gpt-oss models — see
+ * https://console.groq.com/docs/structured-outputs
  */
 export async function analyzeLead(lead) {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     return { status: 'failed' };
   }
 
   try {
-    const res = await fetch(OPENAI_API_URL, {
+    const res = await fetch(GROQ_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: buildUserPrompt(lead) },
@@ -91,7 +93,7 @@ export async function analyzeLead(lead) {
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
-      console.error('[aiAnalysis] OpenAI API error:', res.status, errBody.slice(0, 300));
+      console.error('[aiAnalysis] Groq API error:', res.status, errBody.slice(0, 300));
       return { status: 'failed' };
     }
 
