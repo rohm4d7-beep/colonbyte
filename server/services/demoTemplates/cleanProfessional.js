@@ -2,7 +2,7 @@ import { escapeHtml, renderReviewCallout, renderServicesList, renderContactFoote
 
 export function renderTemplate(lead, demoSite) {
   const { accentColor, tagline, aboutText, services, ctaText } = demoSite;
-  const photo = lead.photos?.[0] || '';
+  const photo = demoSite.heroImage || lead.photos?.[0] || '';
 
   const content = `
     <section style="max-width:1120px;margin:0 auto;padding:72px 40px;display:grid;grid-template-columns:1.1fr 0.9fr;gap:56px;align-items:center;">

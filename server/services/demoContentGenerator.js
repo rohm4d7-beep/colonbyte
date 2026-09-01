@@ -1,4 +1,5 @@
 import { TEMPLATE_KEYS, ACCENT_COLORS } from '../constants/demoOptions.js';
+import { findStockPhoto } from './imageSearch.js';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
@@ -14,8 +15,9 @@ const RESPONSE_SCHEMA = {
       aboutText: { type: 'string' },
       services: { type: 'array', items: { type: 'string' } },
       ctaText: { type: 'string' },
+      imageQuery: { type: 'string' },
     },
-    required: ['templateKey', 'accentColor', 'tagline', 'aboutText', 'services', 'ctaText'],
+    required: ['templateKey', 'accentColor', 'tagline', 'aboutText', 'services', 'ctaText', 'imageQuery'],
     additionalProperties: false,
   },
 };
@@ -44,7 +46,16 @@ const SYSTEM_PROMPT =
   'Write a punchy tagline (under 10 words), a grounded 2-3 sentence about paragraph using ONLY ' +
   'the facts given (never invent awards, years in business, or specifics not provided), 3-6 ' +
   'services typical for the business\'s category, and a short actionable CTA (e.g. "Book Now", ' +
-  '"Get a Free Quote", "Reserve a Table") that fits the category.';
+  '"Get a Free Quote", "Reserve a Table") that fits the category.\n' +
+  'Also write `imageQuery`: a specific, visually descriptive stock-photography search query ' +
+  '(4-8 words) for the hero photo — this is a demo showing the business what a GOOD site could ' +
+  'look like, so describe a professionally shot, well-lit, appealing scene that fits their exact ' +
+  'category and the chosen template\'s vibe (e.g. "cozy boutique hotel lobby warm lighting", ' +
+  '"modern dental clinic bright interior", "rustic italian restaurant dining room candlelight", ' +
+  '"upscale hair salon chic interior"). Be specific enough that two different businesses in the ' +
+  'same category (e.g. two hotels) can land on different queries if their facts suggest a ' +
+  'different vibe (budget vs boutique, casual vs upscale). Never include people\'s faces, brand ' +
+  'names, or text/signage in the description.';
 
 function buildUserPrompt(lead) {
   const facts = {
@@ -102,6 +113,7 @@ export async function generateDemoContent(lead) {
     if (!content) return { status: 'failed' };
 
     const parsed = JSON.parse(content);
+    const heroImage = await findStockPhoto(parsed.imageQuery);
 
     return {
       templateKey: TEMPLATE_KEYS.includes(parsed.templateKey) ? parsed.templateKey : TEMPLATE_KEYS[0],
@@ -110,6 +122,9 @@ export async function generateDemoContent(lead) {
       aboutText: parsed.aboutText || '',
       services: Array.isArray(parsed.services) ? parsed.services : [],
       ctaText: parsed.ctaText || 'Get In Touch',
+      // Falls back to the scraped Google Maps photo (see the demo templates) if no
+      // PEXELS_API_KEY is configured or no good match is found.
+      heroImage,
       status: 'completed',
       generatedAt: new Date(),
     };

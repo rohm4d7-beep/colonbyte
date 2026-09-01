@@ -36,6 +36,10 @@ const demoSiteSchema = new mongoose.Schema(
     aboutText: { type: String, default: '' },
     services: { type: [String], default: [] },
     ctaText: { type: String, default: '' },
+    // Curated stock photo (services/imageSearch.js) matched to the business's category/vibe —
+    // preferred over the scraped Google Maps photo (lead.photos[0]), which is whatever Google
+    // happens to have as the first listing photo and is often not flattering or representative.
+    heroImage: { type: String, default: '' },
     status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
     generatedAt: { type: Date, default: null },
   },

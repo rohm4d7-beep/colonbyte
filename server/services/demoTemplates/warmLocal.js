@@ -2,7 +2,7 @@ import { escapeHtml, renderReviewCallout, renderServicesList, renderContactFoote
 
 export function renderTemplate(lead, demoSite) {
   const { accentColor, tagline, aboutText, services, ctaText } = demoSite;
-  const photo = lead.photos?.[0] || '';
+  const photo = demoSite.heroImage || lead.photos?.[0] || '';
 
   const content = `
     <section style="position:relative;min-height:520px;display:flex;align-items:flex-end;background:${photo ? `url('${photo}') center/cover no-repeat` : `linear-gradient(135deg, ${accentColor}, #3a2317)`};">

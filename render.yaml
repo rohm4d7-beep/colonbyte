@@ -19,6 +19,8 @@ services:
         sync: false
       - key: SENDGRID_WEBHOOK_PUBLIC_KEY
         sync: false
+      - key: PEXELS_API_KEY
+        sync: false
       # This service's actual assigned Render URL — outreach emails link here.
       - key: PUBLIC_BASE_URL
         value: https://leadforge-server-kzk4.onrender.com

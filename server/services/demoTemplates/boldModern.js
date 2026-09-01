@@ -2,7 +2,7 @@ import { escapeHtml, renderReviewCallout, renderServicesList, renderContactFoote
 
 export function renderTemplate(lead, demoSite) {
   const { accentColor, tagline, aboutText, services, ctaText } = demoSite;
-  const photo = lead.photos?.[0] || '';
+  const photo = demoSite.heroImage || lead.photos?.[0] || '';
 
   const content = `
     <section style="background:#0a0a0a;color:#fff;padding:80px 40px 0;">
