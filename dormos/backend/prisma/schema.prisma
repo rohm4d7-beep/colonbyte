@@ -1,0 +1,1521 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────
+
+// Platform / tenancy
+enum HostelPlan {
+  Starter
+  Professional
+  Enterprise
+}
+
+enum HostelStatus {
+  Active
+  Trial
+  Suspended
+}
+
+enum MembershipStatus {
+  Active
+  Invited
+  Disabled
+}
+
+enum RoleType {
+  System
+  Owner
+  Manager
+  Warden
+  Accountant
+  Receptionist
+  KitchenStaff
+  MaintenanceStaff
+  SecurityGuard
+  Student
+  Custom
+}
+
+enum SubscriptionStatus {
+  Active
+  PastDue
+  Canceled
+  Trial
+  Suspended
+}
+
+// Students
+enum Gender {
+  Male
+  Female
+}
+
+enum StudentStatus {
+  Active
+  Graduated
+  CheckInPending
+  NoticeServed
+  Inactive
+}
+
+enum FeeStatus {
+  Paid
+  Pending
+  Overdue
+}
+
+enum DocumentStatus {
+  Verified
+  Pending
+  Expired
+}
+
+enum TimelineType {
+  Admitted
+  RoomAllocated
+  FeeReceived
+  Complaint
+  Maintenance
+  MessPlan
+  Documents
+}
+
+// Rooms / beds
+enum RoomType {
+  Single
+  Twin
+  Triple
+  Quad
+  Dorm
+}
+
+enum RoomStatus {
+  Occupied
+  Vacant
+  Cleaning
+  Maintenance
+}
+
+enum CleaningStatus {
+  Clean
+  NeedsCleaning
+  InProgress
+}
+
+enum RoomMaintenanceStatus {
+  None
+  Scheduled
+  InProgress
+  Overdue
+}
+
+enum BedStatus {
+  Occupied
+  Vacant
+  Reserved
+  Maintenance
+}
+
+// Finance
+enum PaymentMethod {
+  Cash
+  BankTransfer
+  CreditCard
+  DebitCard
+  JazzCash
+  Easypaisa
+  OnlineGateway
+}
+
+enum PaymentStatus {
+  Completed
+  Pending
+  Failed
+  Refunded
+}
+
+enum InvoiceStatus {
+  Draft
+  Issued
+  Partial
+  Pending
+  Paid
+  Overdue
+  Void
+}
+
+enum ExpenseCategory {
+  Utilities
+  Electricity
+  Water
+  Gas
+  Internet
+  Maintenance
+  Furniture
+  Cleaning
+  Mess
+  Transport
+  Salary
+  Miscellaneous
+}
+
+enum ExpenseStatus {
+  Paid
+  Pending
+  Approved
+  Rejected
+}
+
+enum BillingFrequency {
+  Monthly
+  Quarterly
+  Semester
+  Yearly
+}
+
+enum FeePlanType {
+  Standard
+  Premium
+  ACRoom
+  NonAC
+  Semester
+  Monthly
+  Custom
+}
+
+enum ScholarshipStatus {
+  Active
+  Pending
+  Approved
+  Rejected
+  Expired
+}
+
+enum DiscountType {
+  SiblingDiscount
+  EarlyPayment
+  SeasonalDiscount
+  ManualDiscount
+}
+
+enum RefundStatus {
+  Requested
+  Approved
+  Processed
+  Rejected
+}
+
+enum TransactionType {
+  Income
+  Expense
+  Refund
+  Adjustment
+  Transfer
+}
+
+// Maintenance
+enum TicketCategory {
+  Electrical
+  Plumbing
+  Cleaning
+  Furniture
+  Painting
+  Internet
+  AirConditioning
+  General
+}
+
+enum TicketPriority {
+  Low
+  Medium
+  High
+  Critical
+}
+
+enum TicketStatus {
+  Open
+  InProgress
+  Resolved
+  Closed
+  Cancelled
+}
+
+// Inventory
+enum AssetCategory {
+  Furniture
+  Electronics
+  Cleaning
+  Kitchen
+  Safety
+}
+
+enum AssetCondition {
+  Excellent
+  Good
+  Fair
+  Poor
+  Damaged
+}
+
+enum AssetStatus {
+  Active
+  InRepair
+  Retired
+}
+
+enum StockCategory {
+  Cleaning
+  Kitchen
+  Office
+  Maintenance
+}
+
+enum StockStatus {
+  Ok
+  Low
+  Critical
+}
+
+enum MovementType {
+  In
+  Out
+  Adjustment
+}
+
+enum SupplierStatus {
+  Active
+  Inactive
+}
+
+enum OrderStatus {
+  Pending
+  Approved
+  Delivered
+  Cancelled
+}
+
+enum PoPaymentStatus {
+  Unpaid
+  Partial
+  Paid
+}
+
+// Staff
+enum StaffDepartment {
+  Warden
+  Reception
+  Security
+  Kitchen
+  Cleaning
+  Maintenance
+  Administration
+}
+
+enum StaffStatus {
+  Active
+  OnLeave
+  Resigned
+  Suspended
+}
+
+enum AttendanceStatus {
+  Present
+  Absent
+  Late
+  HalfDay
+  Leave
+}
+
+enum LeaveType {
+  Annual
+  Sick
+  Emergency
+  Casual
+}
+
+enum LeaveRequestStatus {
+  Pending
+  Approved
+  Rejected
+}
+
+enum PayrollStatus {
+  Paid
+  Pending
+  OnHold
+}
+
+// Visitors
+enum VisitorStatus {
+  CheckedIn
+  CheckedOut
+  Overstay
+}
+
+enum VisitorPurpose {
+  FamilyVisit
+  DocumentCollection
+  Emergency
+  ParentMeeting
+  Delivery
+  OfficialBusiness
+}
+
+enum VisitorRelationship {
+  Parent
+  Sibling
+  Friend
+  Relative
+  Guardian
+  Official
+}
+
+// Mess
+enum MealType {
+  Breakfast
+  Lunch
+  Dinner
+}
+
+enum MessItemCategory {
+  Grains
+  Proteins
+  Dairy
+  Vegetables
+  Spices
+  Beverages
+  Utilities
+}
+
+enum CouponStatus {
+  Active
+  Expired
+  Used
+}
+
+enum GuestMealStatus {
+  Approved
+  Pending
+  Rejected
+}
+
+enum AlertSeverity {
+  Low
+  Critical
+}
+
+// Notifications / audit
+enum NotificationCategory {
+  Finance
+  Maintenance
+  Students
+  Visitors
+  Inventory
+  AI
+  System
+}
+
+enum AuditSeverity {
+  Info
+  Warning
+  Danger
+}
+
+// ─────────────────────────────────────────────────────────────
+// Platform & tenancy
+// ─────────────────────────────────────────────────────────────
+
+model Organization {
+  id             String   @id @default(cuid())
+  name           String
+  email          String?
+  phone          String?
+  logoUrl        String?
+  timezone       String   @default("Asia/Karachi")
+  currency       String   @default("PKR")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  hostels        Hostel[]
+  users          Membership[]
+  roles          Role[]
+  subscriptions  Subscription[]
+
+  @@map("organizations")
+}
+
+model SubscriptionPlan {
+  id          String          @id @default(cuid())
+  name        String          @unique
+  code        String          @unique
+  price       Decimal         @default(0) @db.Decimal(12, 2)
+  period      String          @default("per hostel / month")
+  features    String[]
+  highlighted Boolean         @default(false)
+  studentLimit Int            @default(100)
+  hostelLimit Int             @default(1)
+  storageGB   Int             @default(5)
+  reportLimit Int             @default(10)
+  aiCredits   Int             @default(50)
+  userLimit   Int             @default(5)
+  ssoEnabled  Boolean         @default(false)
+  auditLogs   Boolean         @default(false)
+  active      Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+
+  subscriptions Subscription[]
+
+  @@map("subscription_plans")
+}
+
+model Subscription {
+  id               String             @id @default(cuid())
+  organizationId   String             @unique
+  planId           String
+  status           SubscriptionStatus @default(Active)
+  startDate        DateTime           @default(now())
+  nextBillingDate  DateTime
+  monthlyAmount    Decimal            @db.Decimal(12, 2)
+  paymentMethod    String             @default("Bank transfer")
+  canceledAt       DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan             SubscriptionPlan   @relation(fields: [planId], references: [id])
+
+  @@index([planId])
+  @@map("subscriptions")
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  phone         String?
+  passwordHash  String
+  firstName     String?
+  lastName      String?
+  avatarUrl     String?
+  isActive      Boolean        @default(true)
+  isSuperAdmin  Boolean        @default(false)
+  emailVerified DateTime?
+  lastLoginAt   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  memberships   Membership[]
+  sessions      Session[]
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+model Membership {
+  id             String           @id @default(cuid())
+  userId         String
+  organizationId String
+  hostelId       String?
+  roleId         String
+  status         MembershipStatus @default(Active)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  hostel         Hostel?          @relation(fields: [hostelId], references: [id], onDelete: SetNull)
+  role           Role             @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, organizationId, hostelId])
+  @@index([organizationId])
+  @@index([roleId])
+  @@map("memberships")
+}
+
+model Role {
+  id             String         @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  type           RoleType       @default(Custom)
+  builtIn        Boolean        @default(false)
+  members        Int            @default(0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions    Permission[]
+  memberships    Membership[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("roles")
+}
+
+model Permission {
+  id         String @id @default(cuid())
+  roleId     String
+  module     String // Students | Rooms | Finance | Inventory | Reports | Visitors | Maintenance | Staff | Settings
+  canCreate  Boolean @default(false)
+  canRead    Boolean @default(false)
+  canUpdate  Boolean @default(false)
+  canDelete  Boolean @default(false)
+
+  role       Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, module])
+  @@index([roleId])
+  @@map("permissions")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  refreshToken String   @unique
+  userAgent    String?
+  ip           String?
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Hostel structure
+// ─────────────────────────────────────────────────────────────
+
+model Hostel {
+  id            String          @id @default(cuid())
+  organizationId String
+  name          String
+  location      String
+  tagline       String?
+  initials      String?
+  color         String?
+  bedCount      Int             @default(0)
+  studentCount  Int             @default(0)
+  occupancy     Int             @default(0)
+  plan          HostelPlan      @default(Starter)
+  status        HostelStatus    @default(Active)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  buildings     Building[]
+  rooms         Room[]
+  students      Student[]
+  staff         StaffMember[]
+  departments   Department[]
+  visitors      Visitor[]
+  invoices      Invoice[]
+  payments      Payment[]
+  expenses      Expense[]
+  assets        Asset[]
+  stockItems    StockItem[]
+  suppliers     Supplier[]
+  purchaseOrders PurchaseOrder[]
+  stockMovements StockMovement[]
+  maintenanceTickets MaintenanceTicket[]
+  feePlans      FeePlan[]
+  recurringItems RecurringItem[]
+  transactions  Transaction[]
+  staffAttendance AttendanceLog[]
+  leaveRequests LeaveRequest[]
+  payrolls      PayrollRecord[]
+  mealAttendance MealAttendance[]
+  guestMeals    GuestMeal[]
+  mealCoupons   MealCoupon[]
+  messAlerts    MessAlert[]
+  kitchenItems  KitchenItem[]
+  weeklyMenus   WeeklyMenu[]
+  memberships   Membership[]
+
+  @@index([organizationId])
+  @@map("hostels")
+}
+
+model Building {
+  id        String   @id @default(cuid())
+  hostelId  String
+  name      String
+  floors    Int      @default(1)
+  createdAt DateTime @default(now())
+
+  hostel    Hostel   @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  rooms     Room[]
+
+  @@unique([hostelId, name])
+  @@index([hostelId])
+  @@map("buildings")
+}
+
+model Room {
+  id                String              @id @default(cuid())
+  hostelId          String
+  buildingId        String?
+  number            String
+  floor             Int                 @default(1)
+  capacity          Int                 @default(2)
+  type              RoomType            @default(Twin)
+  ac                Boolean             @default(false)
+  attachedBathroom  Boolean             @default(false)
+  furniture         String[]
+  status            RoomStatus          @default(Vacant)
+  cleaningStatus    CleaningStatus      @default(Clean)
+  maintenanceStatus RoomMaintenanceStatus @default(None)
+  rentPerBed        Decimal             @default(0) @db.Decimal(12, 2)
+  hue               Int                 @default(0)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  hostel            Hostel              @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  building          Building?           @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  beds              Bed[]
+  students          Student[]
+  maintenanceTickets MaintenanceTicket[]
+
+  @@unique([hostelId, number])
+  @@index([hostelId])
+  @@index([buildingId])
+  @@index([status])
+  @@map("rooms")
+}
+
+model Bed {
+  id        String    @id @default(cuid())
+  roomId    String
+  label     String
+  status    BedStatus @default(Vacant)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  room      Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  student   Student?
+
+  @@unique([roomId, label])
+  @@index([roomId])
+  @@index([status])
+  @@map("beds")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Students
+// ─────────────────────────────────────────────────────────────
+
+model Student {
+  id              String        @id @default(cuid())
+  hostelId        String
+  roomId          String?
+  bedId           String?       @unique
+  name            String
+  cnic            String        @unique
+  gender          Gender
+  dateOfBirth     DateTime?
+  phone           String
+  email           String?
+  address         String?
+  bloodGroup      String?
+  medicalNotes    String?
+  university      String?
+  department      String?
+  semester        String?
+  registrationNo  String?
+  admissionDate   DateTime?
+  status          StudentStatus @default(Active)
+  feeStatus       FeeStatus     @default(Pending)
+  monthlyFee      Decimal       @default(0) @db.Decimal(12, 2)
+  outstandingDues Decimal       @default(0) @db.Decimal(12, 2)
+  messPlan        String        @default("Full")
+  guardian        Json?
+  emergencyContact Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  hostel          Hostel        @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  room            Room?         @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  bed             Bed?          @relation(fields: [bedId], references: [id], onDelete: SetNull)
+  documents       StudentDocument[]
+  timeline        StudentTimeline[]
+  invoices        Invoice[]
+  payments        Payment[]
+  scholarships    Scholarship[]
+  discounts       Discount[]
+  refunds         Refund[]
+  mealAttendance  MealAttendance[]
+  mealCoupons     MealCoupon[]
+  guestMeals      GuestMeal[]
+
+  @@index([hostelId])
+  @@index([roomId])
+  @@index([status])
+  @@map("students")
+}
+
+model StudentDocument {
+  id          String         @id @default(cuid())
+  studentId   String
+  name        String
+  category    String
+  size        String
+  url         String?
+  status      DocumentStatus @default(Pending)
+  uploadedAt  DateTime       @default(now())
+
+  student     Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@map("student_documents")
+}
+
+model StudentTimeline {
+  id          String       @id @default(cuid())
+  studentId   String
+  type        TimelineType
+  title       String
+  description String?
+  date        DateTime     @default(now())
+  actor       String?
+
+  student     Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@map("student_timelines")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Finance
+// ─────────────────────────────────────────────────────────────
+
+model FeePlan {
+  id             String        @id @default(cuid())
+  hostelId       String
+  name           String
+  type           FeePlanType   @default(Standard)
+  amount         Decimal       @db.Decimal(12, 2)
+  billingCycle   BillingFrequency @default(Monthly)
+  active         Boolean       @default(true)
+  studentsEnrolled Int         @default(0)
+  description    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  hostel         Hostel        @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  @@unique([hostelId, name])
+  @@index([hostelId])
+  @@map("fee_plans")
+}
+
+model Invoice {
+  id            String         @id @default(cuid())
+  hostelId      String
+  studentId     String
+  number        String         @unique
+  issueDate     DateTime
+  dueDate       DateTime
+  billingPeriodMonths Int      @default(1)
+  status        InvoiceStatus  @default(Draft)
+  discounts     Decimal        @default(0) @db.Decimal(12, 2)
+  taxes         Decimal        @default(0) @db.Decimal(12, 2)
+  total         Decimal        @default(0) @db.Decimal(12, 2)
+  notes         String?
+  createdBy     String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  hostel        Hostel         @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  student       Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  items         InvoiceItem[]
+  payments      Payment[]
+
+  @@index([hostelId])
+  @@index([studentId])
+  @@index([status])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id        String  @id @default(cuid())
+  invoiceId String
+  label     String
+  amount    Decimal @db.Decimal(12, 2)
+
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  hostelId    String
+  invoiceId   String?
+  studentId   String
+  invoiceNo   String?
+  amount      Decimal       @db.Decimal(12, 2)
+  method      PaymentMethod @default(Cash)
+  status      PaymentStatus @default(Pending)
+  paidDate    DateTime?
+  dueDate     DateTime?
+  referenceNo String?
+  createdBy   String?
+  notes       String?
+  receiptId   String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  hostel      Hostel        @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  invoice     Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  student     Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  refund      Refund?
+
+  @@index([hostelId])
+  @@index([studentId])
+  @@index([invoiceId])
+  @@index([status])
+  @@map("payments")
+}
+
+model Expense {
+  id          String         @id @default(cuid())
+  hostelId    String
+  vendor      String
+  category    ExpenseCategory
+  amount      Decimal        @db.Decimal(12, 2)
+  paymentDate DateTime?
+  status      ExpenseStatus  @default(Pending)
+  receiptNo   String?
+  notes       String?
+  createdBy   String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  hostel      Hostel         @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  @@index([hostelId])
+  @@index([category])
+  @@map("expenses")
+}
+
+model RecurringItem {
+  id          String          @id @default(cuid())
+  hostelId    String
+  name        String
+  amount      Decimal         @db.Decimal(12, 2)
+  frequency   BillingFrequency @default(Monthly)
+  nextBilling DateTime
+  active      Boolean         @default(true)
+  students    Int             @default(0)
+  category    TransactionType
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  hostel      Hostel          @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  @@index([hostelId])
+  @@map("recurring_items")
+}
+
+model Scholarship {
+  id            String            @id @default(cuid())
+  studentId     String
+  percentage    Decimal           @db.Decimal(5, 2)
+  reason        String?
+  durationMonths Int
+  status        ScholarshipStatus @default(Pending)
+  appliedDate   DateTime          @default(now())
+  approvedBy    String?
+  createdAt     DateTime          @default(now())
+
+  student       Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@map("scholarships")
+}
+
+model Discount {
+  id         String      @id @default(cuid())
+  studentId  String?
+  name       DiscountType
+  percentage Decimal     @default(0) @db.Decimal(5, 2)
+  amount     Decimal     @default(0) @db.Decimal(12, 2)
+  active     Boolean     @default(true)
+  reason     String?
+  createdAt  DateTime    @default(now())
+
+  student    Student?    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@map("discounts")
+}
+
+model Refund {
+  id            String        @id @default(cuid())
+  paymentId     String        @unique
+  studentId     String
+  amount        Decimal       @db.Decimal(12, 2)
+  reason        String?
+  status        RefundStatus  @default(Requested)
+  requestedDate DateTime      @default(now())
+  processedDate DateTime?
+  method        PaymentMethod @default(BankTransfer)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  payment       Payment       @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  student       Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@map("refunds")
+}
+
+model Transaction {
+  id          String          @id @default(cuid())
+  hostelId    String
+  type        TransactionType
+  description String
+  amount      Decimal         @db.Decimal(12, 2)
+  date        DateTime        @default(now())
+  category    String?
+  reference   String?
+  balance     Decimal         @default(0) @db.Decimal(12, 2)
+  createdBy   String?
+  createdAt   DateTime        @default(now())
+
+  hostel      Hostel          @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  @@index([hostelId])
+  @@index([type])
+  @@index([date])
+  @@map("transactions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Maintenance
+// ─────────────────────────────────────────────────────────────
+
+model MaintenanceTicket {
+  id            String         @id @default(cuid())
+  hostelId      String
+  roomId        String?
+  ticketNumber  String         @unique
+  title         String
+  category      TicketCategory
+  priority      TicketPriority @default(Medium)
+  status        TicketStatus   @default(Open)
+  description   String?
+  reportedBy    String?
+  assignedTo    String?
+  assignedDept  StaffDepartment?
+  scheduledDate DateTime?
+  completedDate DateTime?
+  estimatedCost Decimal        @default(0) @db.Decimal(12, 2)
+  actualCost    Decimal?       @db.Decimal(12, 2)
+  images        Int            @default(0)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  hostel        Hostel         @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  room          Room?          @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  timeline      TicketTimeline[]
+
+  @@index([hostelId])
+  @@index([roomId])
+  @@index([status])
+  @@index([priority])
+  @@map("maintenance_tickets")
+}
+
+model TicketTimeline {
+  id          String           @id @default(cuid())
+  ticketId    String
+  date        DateTime         @default(now())
+  action      String
+  by          String?
+  note        String?
+
+  ticket      MaintenanceTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@map("ticket_timelines")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Inventory
+// ─────────────────────────────────────────────────────────────
+
+model Asset {
+  id            String         @id @default(cuid())
+  hostelId      String
+  assetId       String         @unique
+  name          String
+  category      AssetCategory
+  subCategory   String?
+  purchaseDate  DateTime?
+  purchasePrice Decimal        @default(0) @db.Decimal(12, 2)
+  warrantyExpiry DateTime?
+  currentLocation String?
+  condition     AssetCondition @default(Good)
+  assignedRoom  String?
+  assignedStaff String?
+  lastMaintenance DateTime?
+  notes         String?
+  status        AssetStatus    @default(Active)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  hostel        Hostel         @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  @@index([hostelId])
+  @@index([category])
+  @@map("assets")
+}
+
+model StockItem {
+  id           String       @id @default(cuid())
+  hostelId     String
+  name         String
+  category     StockCategory
+  currentStock Decimal      @default(0) @db.Decimal(12, 3)
+  minStock     Decimal      @default(0) @db.Decimal(12, 3)
+  maxStock     Decimal      @default(0) @db.Decimal(12, 3)
+  unit         String
+  costPerUnit  Decimal      @default(0) @db.Decimal(12, 2)
+  supplier     String?
+  lastPurchase DateTime?
+  status       StockStatus  @default(Ok)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  hostel       Hostel       @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  @@unique([hostelId, name])
+  @@index([hostelId])
+  @@map("stock_items")
+}
+
+model Supplier {
+  id                String        @id @default(cuid())
+  hostelId          String
+  supplierId        String        @unique
+  name              String
+  contactPerson     String?
+  phone             String?
+  email             String?
+  address           String?
+  city              String?
+  category          String?
+  products          String[]
+  totalOrders       Int           @default(0)
+  totalValue        Decimal       @default(0) @db.Decimal(12, 2)
+  outstandingBalance Decimal      @default(0) @db.Decimal(12, 2)
+  rating            Decimal       @default(0) @db.Decimal(3, 2)
+  status            SupplierStatus @default(Active)
+  joinedDate        DateTime      @default(now())
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  hostel            Hostel        @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  purchaseOrders    PurchaseOrder[]
+
+  @@index([hostelId])
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  id              String         @id @default(cuid())
+  hostelId        String
+  supplierId      String
+  poNumber        String         @unique
+  date            DateTime       @default(now())
+  expectedDelivery DateTime?
+  totalAmount     Decimal        @default(0) @db.Decimal(12, 2)
+  status          OrderStatus    @default(Pending)
+  paymentStatus   PoPaymentStatus @default(Unpaid)
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  hostel          Hostel         @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  supplier        Supplier       @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  items           PurchaseOrderItem[]
+
+  @@index([hostelId])
+  @@index([supplierId])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id          String        @id @default(cuid())
+  orderId     String
+  name        String
+  qty         Decimal       @db.Decimal(12, 2)
+  unitPrice   Decimal       @db.Decimal(12, 2)
+
+  order       PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("purchase_order_items")
+}
+
+model StockMovement {
+  id          String       @id @default(cuid())
+  hostelId    String
+  itemName    String
+  type        MovementType
+  quantity    Decimal      @db.Decimal(12, 3)
+  unit        String
+  reason      String?
+  performedBy String?
+  reference   String?
+  date        DateTime     @default(now())
+  createdAt   DateTime     @default(now())
+
+  hostel      Hostel       @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  @@index([hostelId])
+  @@index([date])
+  @@map("stock_movements")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Staff
+// ─────────────────────────────────────────────────────────────
+
+model Department {
+  id          String          @id @default(cuid())
+  hostelId    String
+  name        StaffDepartment
+  head        String?
+  headDesignation String?
+  count       Int             @default(0)
+  budget      Decimal         @default(0) @db.Decimal(12, 2)
+  description String?
+  color       String?
+  icon        String?
+  createdAt   DateTime        @default(now())
+
+  hostel      Hostel          @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  staff       StaffMember[]
+
+  @@unique([hostelId, name])
+  @@index([hostelId])
+  @@map("departments")
+}
+
+model StaffMember {
+  id            String         @id @default(cuid())
+  hostelId      String
+  departmentId  String?
+  employeeId    String         @unique
+  name          String
+  initials      String?
+  avatarColor   String?
+  department    StaffDepartment
+  designation   String
+  phone         String?
+  cnic          String?        @unique
+  email         String?
+  address       String?
+  joiningDate   DateTime?
+  salary        Decimal        @default(0) @db.Decimal(12, 2)
+  allowances    Decimal        @default(0) @db.Decimal(12, 2)
+  status        StaffStatus    @default(Active)
+  leaveBalance  Decimal        @default(0) @db.Decimal(12, 2)
+  attendanceRate Decimal       @default(0) @db.Decimal(5, 2)
+  assignedTasks String[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  hostel        Hostel         @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  departmentRef Department?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  attendance    AttendanceLog[]
+  leaveRequests LeaveRequest[]
+  payrolls      PayrollRecord[]
+
+  @@index([hostelId])
+  @@index([departmentId])
+  @@map("staff_members")
+}
+
+model AttendanceLog {
+  id          String           @id @default(cuid())
+  hostelId    String
+  staffId     String
+  date        DateTime
+  status      AttendanceStatus @default(Present)
+  createdAt   DateTime         @default(now())
+
+  hostel      Hostel           @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  staff       StaffMember      @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, date])
+  @@index([hostelId])
+  @@map("attendance_logs")
+}
+
+model LeaveRequest {
+  id          String            @id @default(cuid())
+  hostelId    String
+  staffId     String
+  leaveType   LeaveType
+  from        DateTime
+  to          DateTime
+  days        Decimal           @default(1) @db.Decimal(6, 1)
+  reason      String?
+  status      LeaveRequestStatus @default(Pending)
+  appliedOn   DateTime          @default(now())
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  hostel      Hostel            @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  staff       StaffMember       @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([hostelId])
+  @@index([staffId])
+  @@map("leave_requests")
+}
+
+model PayrollRecord {
+  id          String       @id @default(cuid())
+  hostelId    String
+  staffId     String
+  period      String // "2026-07"
+  salary      Decimal      @default(0) @db.Decimal(12, 2)
+  allowances  Decimal      @default(0) @db.Decimal(12, 2)
+  bonus       Decimal      @default(0) @db.Decimal(12, 2)
+  deductions  Decimal      @default(0) @db.Decimal(12, 2)
+  tax         Decimal      @default(0) @db.Decimal(12, 2)
+  netSalary   Decimal      @default(0) @db.Decimal(12, 2)
+  status      PayrollStatus @default(Pending)
+  paymentDate DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  hostel      Hostel       @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  staff       StaffMember  @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, period])
+  @@index([hostelId])
+  @@map("payroll_records")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Visitors
+// ─────────────────────────────────────────────────────────────
+
+model Visitor {
+  id              String             @id @default(cuid())
+  hostelId        String
+  visitorId       String             @unique
+  name            String
+  cnic            String?
+  phone           String?
+  relationship    VisitorRelationship
+  visitingStudent String
+  studentRoom     String?
+  purpose         VisitorPurpose
+  checkIn         DateTime           @default(now())
+  checkOut        DateTime?
+  durationMinutes Int?
+  passNumber      String?
+  status          VisitorStatus      @default(CheckedIn)
+  approvedBy      String?
+  notes           String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  hostel          Hostel             @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  @@index([hostelId])
+  @@index([status])
+  @@index([checkIn])
+  @@map("visitors")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Mess
+// ─────────────────────────────────────────────────────────────
+
+model WeeklyMenu {
+  id        String   @id @default(cuid())
+  hostelId  String
+  day       String
+  date      DateTime
+  breakfast String[]
+  lunch     String[]
+  dinner    String[]
+  createdAt DateTime @default(now())
+
+  hostel    Hostel   @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  @@unique([hostelId, date])
+  @@index([hostelId])
+  @@map("weekly_menus")
+}
+
+model KitchenItem {
+  id           String           @id @default(cuid())
+  hostelId     String
+  name         String
+  category     MessItemCategory
+  currentStock Decimal          @default(0) @db.Decimal(12, 3)
+  minStock     Decimal          @default(0) @db.Decimal(12, 3)
+  maxStock     Decimal          @default(0) @db.Decimal(12, 3)
+  unit         String
+  supplier     String?
+  lastPurchase DateTime?
+  expiryDate   DateTime?
+  costPerUnit  Decimal          @default(0) @db.Decimal(12, 2)
+  status       StockStatus      @default(Ok)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  hostel       Hostel           @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  @@unique([hostelId, name])
+  @@index([hostelId])
+  @@map("kitchen_items")
+}
+
+model MealAttendance {
+  id         String    @id @default(cuid())
+  hostelId   String
+  studentId  String
+  date       DateTime
+  breakfast  Boolean   @default(false)
+  lunch      Boolean   @default(false)
+  dinner     Boolean   @default(false)
+  isGuest    Boolean   @default(false)
+  guestName  String?
+  createdAt  DateTime  @default(now())
+
+  hostel     Hostel    @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  student    Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, date])
+  @@index([hostelId])
+  @@index([date])
+  @@map("meal_attendance")
+}
+
+model GuestMeal {
+  id         String         @id @default(cuid())
+  hostelId   String
+  studentId  String?
+  guestName  String
+  hostStudent String
+  hostRoom   String?
+  date       DateTime       @default(now())
+  meal       MealType
+  cost       Decimal        @default(0) @db.Decimal(12, 2)
+  status     GuestMealStatus @default(Pending)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  hostel     Hostel         @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  student    Student?       @relation(fields: [studentId], references: [id], onDelete: SetNull)
+
+  @@index([hostelId])
+  @@map("guest_meals")
+}
+
+model MealCoupon {
+  id           String      @id @default(cuid())
+  hostelId     String
+  studentId    String?
+  couponNumber String      @unique
+  studentName  String
+  room         String?
+  mealType     String
+  validFrom    DateTime
+  validTo      DateTime
+  usedCount    Int         @default(0)
+  totalCount   Int         @default(1)
+  status       CouponStatus @default(Active)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  hostel       Hostel      @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  student      Student?    @relation(fields: [studentId], references: [id], onDelete: SetNull)
+
+  @@index([hostelId])
+  @@map("meal_coupons")
+}
+
+model MessAlert {
+  id           String       @id @default(cuid())
+  hostelId     String
+  itemName     String
+  currentStock Decimal      @default(0) @db.Decimal(12, 3)
+  minStock     Decimal      @default(0) @db.Decimal(12, 3)
+  unit         String
+  severity     AlertSeverity @default(Low)
+  message      String?
+  resolved     Boolean      @default(false)
+  createdAt    DateTime     @default(now())
+
+  hostel       Hostel       @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  @@index([hostelId])
+  @@map("mess_alerts")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Notifications & audit
+// ─────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String              @id @default(cuid())
+  userId    String?
+  hostelId  String?
+  title     String
+  description String?
+  category  NotificationCategory @default(System)
+  type      String
+  read      Boolean             @default(false)
+  archived  Boolean             @default(false)
+  link      String?
+  createdAt DateTime            @default(now())
+
+  @@index([userId, read])
+  @@index([hostelId])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        String        @id @default(cuid())
+  organizationId String?
+  hostelId  String?
+  userId    String?
+  actor     String?
+  actorRole String?
+  action    String
+  module    String
+  target    String?
+  ip        String?
+  userAgent String?
+  severity  AuditSeverity @default(Info)
+  metadata  Json?
+  createdAt DateTime      @default(now())
+
+  user      User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([hostelId])
+  @@index([createdAt])
+  @@index([module])
+  @@map("audit_logs")
+}

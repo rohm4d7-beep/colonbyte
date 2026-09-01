@@ -1,0 +1,14 @@
+node_modules
+.next
+tsconfig.tsbuildinfo
+next-env.d.ts
+backend
+*.zip
+*.tsbuildinfo
+.git
+.gitignore
+README.md
+SETUP.md
+Dockerfile
+docker-compose.yml
+.dockerignore

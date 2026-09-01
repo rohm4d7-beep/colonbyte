@@ -1,0 +1,47 @@
+# dependencies
+/node_modules
+
+# build output
+/dist
+/build
+
+# database
+/prisma/*.db
+/prisma/*.db-journal
+/prisma/migrations/dev/
+
+# generated
+/src/generated/
+
+# testing
+/coverage
+/.nyc_output
+
+# misc
+.DS_Store
+npm-debug.log*
+yarn-error.log
+.prettierrc
+
+# env
+.env
+.env.local
+.env.production
+.env.test
+
+# logs
+logs/
+*.log
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
