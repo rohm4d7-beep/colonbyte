@@ -39,7 +39,7 @@ app.use(
 );
 app.use(cors({ origin: CLIENT_ORIGIN }));
 
-// Mounted before express.json() below: Resend's webhook signature is computed over the
+// Mounted before express.json() below: SendGrid's webhook signature is computed over the
 // raw request bytes, so this route needs the unparsed Buffer, not a parsed JSON object.
 app.use(
   '/webhooks',

@@ -221,6 +221,7 @@ router.post('/:id/send-outreach', sendLimiter, asyncHandler(async (req, res) => 
     to: lead.email,
     subject: lead.outreach.subject,
     body: lead.outreach.body,
+    leadId: lead._id,
   });
 
   if (!result.success) {
@@ -231,7 +232,7 @@ router.post('/:id/send-outreach', sendLimiter, asyncHandler(async (req, res) => 
 
   lead.outreach.status = 'sent';
   lead.outreach.sentAt = new Date();
-  lead.outreach.resendMessageId = result.messageId || '';
+  lead.outreach.providerMessageId = result.messageId || '';
   if (lead.status === 'new') lead.status = 'contacted';
   await lead.save();
 

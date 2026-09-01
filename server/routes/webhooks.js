@@ -6,88 +6,78 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 const router = Router();
 
 /**
- * Resend signs webhooks using the Svix scheme: HMAC-SHA256 over `${id}.${timestamp}.${rawBody}`
- * with the base64-decoded secret (after stripping the "whsec_" prefix), base64-encoded, compared
- * against one or more "v1,<sig>" entries in the svix-signature header. Verified against the raw
- * body — this is why routes/webhooks.js is mounted with express.raw() ahead of the global
- * express.json() in index.js; parsing it as JSON first would make the bytes unrecoverable.
+ * SendGrid's Signed Event Webhook signs `${timestamp}${rawBody}` with an ECDSA (P-256/SHA256)
+ * private key; verification uses the base64 DER public key shown in SendGrid's webhook settings.
+ * Verified against the raw body — this is why routes/webhooks.js is mounted with express.raw()
+ * ahead of the global express.json() in index.js; parsing it as JSON first would make the bytes
+ * unrecoverable.
  */
-function isValidSignature(secret, id, timestamp, rawBody, signatureHeader) {
-  let secretBytes;
+function isValidSignature(publicKeyBase64, timestamp, rawBody, signatureBase64) {
   try {
-    secretBytes = Buffer.from(secret.replace(/^whsec_/, ''), 'base64');
+    const publicKey = crypto.createPublicKey({
+      key: Buffer.from(publicKeyBase64, 'base64'),
+      format: 'der',
+      type: 'spki',
+    });
+    const verifier = crypto.createVerify('SHA256');
+    verifier.update(timestamp + rawBody.toString('utf8'));
+    verifier.end();
+    return verifier.verify(publicKey, Buffer.from(signatureBase64, 'base64'));
   } catch {
     return false;
   }
-
-  const signedContent = `${id}.${timestamp}.${rawBody.toString('utf8')}`;
-  const expected = crypto.createHmac('sha256', secretBytes).update(signedContent).digest('base64');
-  const expectedBuf = Buffer.from(expected, 'base64');
-
-  return signatureHeader
-    .split(' ')
-    .map((entry) => entry.split(',')[1])
-    .filter(Boolean)
-    .some((sig) => {
-      try {
-        const sigBuf = Buffer.from(sig, 'base64');
-        return sigBuf.length === expectedBuf.length && crypto.timingSafeEqual(sigBuf, expectedBuf);
-      } catch {
-        return false;
-      }
-    });
 }
 
-router.post('/resend', asyncHandler(async (req, res) => {
-  const secret = process.env.RESEND_WEBHOOK_SECRET;
-  if (!secret) {
-    console.warn('[webhooks] RESEND_WEBHOOK_SECRET not configured — rejecting webhook.');
+router.post('/sendgrid', asyncHandler(async (req, res) => {
+  const publicKey = process.env.SENDGRID_WEBHOOK_PUBLIC_KEY;
+  if (!publicKey) {
+    console.warn('[webhooks] SENDGRID_WEBHOOK_PUBLIC_KEY not configured — rejecting webhook.');
     return res.status(503).json({ error: 'Webhook not configured.' });
   }
 
-  const svixId = req.get('svix-id');
-  const svixTimestamp = req.get('svix-timestamp');
-  const svixSignature = req.get('svix-signature');
+  const signature = req.get('x-twilio-email-event-webhook-signature');
+  const timestamp = req.get('x-twilio-email-event-webhook-timestamp');
   const rawBody = req.body;
 
-  if (!svixId || !svixTimestamp || !svixSignature || !Buffer.isBuffer(rawBody)) {
+  if (!signature || !timestamp || !Buffer.isBuffer(rawBody)) {
     return res.status(400).json({ error: 'Missing or invalid signature headers.' });
   }
 
-  const timestampSeconds = parseInt(svixTimestamp, 10);
-  if (!Number.isFinite(timestampSeconds) || Math.abs(Date.now() / 1000 - timestampSeconds) > 300) {
+  if (Math.abs(Date.now() / 1000 - parseInt(timestamp, 10)) > 300) {
     return res.status(401).json({ error: 'Timestamp out of tolerance.' });
   }
 
-  if (!isValidSignature(secret, svixId, svixTimestamp, rawBody, svixSignature)) {
+  if (!isValidSignature(publicKey, timestamp, rawBody, signature)) {
     return res.status(401).json({ error: 'Invalid signature.' });
   }
 
-  const event = JSON.parse(rawBody.toString('utf8'));
-  const emailId = event?.data?.email_id;
-  if (!emailId) return res.status(200).json({ ok: true });
+  const events = JSON.parse(rawBody.toString('utf8'));
 
-  const lead = await Lead.findOne({ 'outreach.resendMessageId': emailId });
-  if (!lead) return res.status(200).json({ ok: true });
+  for (const event of events) {
+    if (!event.leadId) continue;
+    const lead = await Lead.findById(event.leadId).catch(() => null);
+    if (!lead) continue;
 
-  switch (event.type) {
-    case 'email.opened':
-      lead.outreach.openCount += 1;
-      lead.outreach.lastOpenedAt = new Date();
-      break;
-    case 'email.clicked':
-      lead.outreach.clickCount += 1;
-      lead.outreach.lastClickedAt = new Date();
-      break;
-    case 'email.bounced':
-    case 'email.complained':
-      lead.outreach.bounced = true;
-      break;
-    default:
-      return res.status(200).json({ ok: true });
+    switch (event.event) {
+      case 'open':
+        lead.outreach.openCount += 1;
+        lead.outreach.lastOpenedAt = new Date();
+        break;
+      case 'click':
+        lead.outreach.clickCount += 1;
+        lead.outreach.lastClickedAt = new Date();
+        break;
+      case 'bounce':
+      case 'spamreport':
+        lead.outreach.bounced = true;
+        break;
+      default:
+        continue;
+    }
+
+    await lead.save();
   }
 
-  await lead.save();
   res.status(200).json({ ok: true });
 }));
 

@@ -49,7 +49,7 @@ const outreachSchema = new mongoose.Schema(
     status: { type: String, enum: ['pending', 'drafted', 'sending', 'sent', 'failed'], default: 'pending' },
     generatedAt: { type: Date, default: null },
     sentAt: { type: Date, default: null },
-    resendMessageId: { type: String, default: '' },
+    providerMessageId: { type: String, default: '' },
     openCount: { type: Number, default: 0 },
     clickCount: { type: Number, default: 0 },
     lastOpenedAt: { type: Date, default: null },
