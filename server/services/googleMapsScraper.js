@@ -7,6 +7,13 @@ import { chromium } from 'playwright';
 // surface via scrolling before results stop growing.
 const MAX_RESULTS = 150;
 
+// Listings were visited one at a time on a single tab — almost all of the time per item is
+// spent waiting on network I/O (Maps navigation, website checks, email extraction, AI calls),
+// so a handful of tabs working the same queue in parallel gives a near-linear speedup with
+// little extra load. Kept modest since each worker's website-analysis fallback can itself
+// launch a browser page (see websiteAnalyzer.js's shared analysisBrowser).
+const CONCURRENCY = 4;
+
 // None of the per-listing locator calls below specify a timeout, so a listing simply missing
 // one of these fields (no rating shown, no category button, etc. — completely normal) was
 // paying Playwright's default 30s actionability wait before the .catch() gave up on it. With
@@ -161,82 +168,104 @@ async function autoScroll(page, feedSelector, targetCount) {
   }
 }
 
+async function visitListing(page, link) {
+  await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 20000 });
+  await page.waitForTimeout(600);
+
+  const businessName = await page.locator('h1').first().textContent({ timeout: FIELD_TIMEOUT }).catch(() => '') || '';
+
+  const websiteHref = await page
+    .locator('a[data-item-id="authority"]')
+    .first()
+    .getAttribute('href', { timeout: FIELD_TIMEOUT })
+    .catch(() => null);
+  const website = resolveWebsite(websiteHref);
+
+  const phoneItemId = await page
+    .locator('button[data-item-id^="phone:tel:"]')
+    .first()
+    .getAttribute('data-item-id', { timeout: FIELD_TIMEOUT })
+    .catch(() => null);
+  const phone = phoneItemId ? phoneItemId.replace('phone:tel:', '') : '';
+
+  const address = await page
+    .locator('button[data-item-id="address"]')
+    .first()
+    .textContent({ timeout: FIELD_TIMEOUT })
+    .catch(() => '') || '';
+
+  const placeUrl = page.url();
+  const coords = extractCoordinates(placeUrl);
+  const details = await extractListingDetails(page);
+
+  return {
+    businessName: stripIconGlyphs(businessName),
+    website: website || '',
+    phone,
+    address: stripIconGlyphs(address),
+    country: guessCountry(stripIconGlyphs(address)),
+    placeId: extractPlaceId(placeUrl),
+    lat: coords?.lat ?? null,
+    lng: coords?.lng ?? null,
+    ...details,
+  };
+}
+
 export async function scrapeGoogleMaps(keyword, { onProgress, processItem, targetCountry } = {}) {
   const browser = await chromium.launch({ headless: true });
   const results = [];
 
   try {
-    const page = await browser.newPage({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' });
+    const searchPage = await browser.newPage({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' });
     const searchTerm = targetCountry ? `${keyword} ${targetCountry}` : keyword;
     const url = `https://www.google.com/maps/search/${encodeURIComponent(searchTerm)}`;
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await searchPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     const feedSelector = 'div[role="feed"]';
-    await page.waitForSelector(feedSelector, { timeout: 15000 }).catch(() => {});
+    await searchPage.waitForSelector(feedSelector, { timeout: 15000 }).catch(() => {});
 
-    await autoScroll(page, feedSelector, MAX_RESULTS);
+    await autoScroll(searchPage, feedSelector, MAX_RESULTS);
 
-    const links = await page
+    const links = await searchPage
       .locator(`${feedSelector} a[href*="/maps/place/"]`)
       .evaluateAll(els => els.map(el => el.href));
+
+    await searchPage.close();
 
     const uniqueLinks = [...new Set(links)].slice(0, MAX_RESULTS);
     onProgress?.({ found: uniqueLinks.length, processed: 0, status: 'running' });
 
-    for (let i = 0; i < uniqueLinks.length; i++) {
-      let item = null;
+    // A handful of tabs pull from the same queue rather than a strict one-at-a-time loop —
+    // see CONCURRENCY above.
+    let nextIndex = 0;
+    let processedCount = 0;
+
+    async function worker() {
+      const page = await browser.newPage({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' });
       try {
-        await page.goto(uniqueLinks[i], { waitUntil: 'domcontentloaded', timeout: 20000 });
-        await page.waitForTimeout(600);
+        while (true) {
+          const i = nextIndex++;
+          if (i >= uniqueLinks.length) break;
 
-        const businessName = await page.locator('h1').first().textContent({ timeout: FIELD_TIMEOUT }).catch(() => '') || '';
+          try {
+            const item = await visitListing(page, uniqueLinks[i]);
+            if (item.businessName) {
+              if (processItem) await processItem(item);
+              results.push(item);
+            }
+          } catch {
+            // skip this listing, keep going
+          }
 
-        const websiteHref = await page
-          .locator('a[data-item-id="authority"]')
-          .first()
-          .getAttribute('href', { timeout: FIELD_TIMEOUT })
-          .catch(() => null);
-        const website = resolveWebsite(websiteHref);
-
-        const phoneItemId = await page
-          .locator('button[data-item-id^="phone:tel:"]')
-          .first()
-          .getAttribute('data-item-id', { timeout: FIELD_TIMEOUT })
-          .catch(() => null);
-        const phone = phoneItemId ? phoneItemId.replace('phone:tel:', '') : '';
-
-        const address = await page
-          .locator('button[data-item-id="address"]')
-          .first()
-          .textContent({ timeout: FIELD_TIMEOUT })
-          .catch(() => '') || '';
-
-        const placeUrl = page.url();
-        const coords = extractCoordinates(placeUrl);
-        const details = await extractListingDetails(page);
-
-        item = {
-          businessName: stripIconGlyphs(businessName),
-          website: website || '',
-          phone,
-          address: stripIconGlyphs(address),
-          country: guessCountry(stripIconGlyphs(address)),
-          placeId: extractPlaceId(placeUrl),
-          lat: coords?.lat ?? null,
-          lng: coords?.lng ?? null,
-          ...details,
-        };
-
-        if (item.businessName) {
-          if (processItem) await processItem(item);
-          results.push(item);
+          processedCount++;
+          onProgress?.({ found: uniqueLinks.length, processed: processedCount, status: 'running' });
         }
-      } catch {
-        // skip this listing, keep going
+      } finally {
+        await page.close();
       }
-
-      onProgress?.({ found: uniqueLinks.length, processed: i + 1, status: 'running' });
     }
+
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, uniqueLinks.length) }, worker));
   } finally {
     await browser.close();
   }
