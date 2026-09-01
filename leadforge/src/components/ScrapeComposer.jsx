@@ -45,6 +45,111 @@ const fade = {
   transition: { duration: 0.16, ease: 'easeOut' },
 };
 
+function ChevronIcon(props) {
+  return (
+    <svg viewBox="0 0 10 6" fill="none" {...props}>
+      <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CountryPicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const containerRef = useRef(null);
+  const searchRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    searchRef.current?.focus();
+
+    const onPointerDown = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false);
+        setQuery('');
+      }
+    };
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        setQuery('');
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  const filtered = query.trim()
+    ? COUNTRIES.filter(c => c.toLowerCase().includes(query.trim().toLowerCase()))
+    : COUNTRIES;
+
+  const select = (c) => {
+    onChange(c);
+    setOpen(false);
+    setQuery('');
+  };
+
+  return (
+    <div ref={containerRef} className="relative inline-block shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1 bg-transparent text-[13px] text-text-2 outline-none cursor-pointer max-w-[130px]"
+      >
+        <span className="truncate">{value || 'Target country'}</span>
+        <ChevronIcon className="shrink-0 w-2.5 h-2.5 text-text-3" />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            {...fade}
+            className="absolute right-0 top-[calc(100%+6px)] z-10 w-56 rounded-md border shadow-lg overflow-hidden"
+            style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border-strong)' }}
+          >
+            <input
+              ref={searchRef}
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && filtered.length > 0) select(filtered[0]);
+              }}
+              placeholder="Search countries…"
+              className="w-full px-3 py-2 text-[13px] text-text bg-transparent outline-none border-b placeholder:text-text-3"
+              style={{ borderColor: 'var(--color-border)' }}
+            />
+            <div className="max-h-56 overflow-y-auto py-1">
+              {filtered.length === 0 ? (
+                <p className="px-3 py-2 text-[12.5px] text-text-3">No matches</p>
+              ) : (
+                filtered.map(c => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => select(c)}
+                    className="block w-full text-left px-3 py-1.5 text-[13px] truncate hover:brightness-110 transition-colors duration-100"
+                    style={{
+                      color: c === value ? 'var(--color-accent)' : 'var(--color-text)',
+                      background: c === value ? 'var(--color-accent-soft, transparent)' : 'transparent',
+                    }}
+                  >
+                    {c}
+                  </button>
+                ))
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export default function ScrapeComposer({ onDone }) {
   const [keyword, setKeyword] = useState('');
   const [country, setCountry] = useState('');
@@ -230,29 +335,7 @@ export default function ScrapeComposer({ onDone }) {
                 className="flex-1 min-w-0 bg-transparent text-[13.5px] text-text placeholder:text-text-3 outline-none"
               />
               <div className="w-px h-4 shrink-0" style={{ background: 'var(--color-border)' }} />
-              <div className="relative inline-block shrink-0">
-                <select
-                  value={country}
-                  onChange={e => setCountry(e.target.value)}
-                  className="bg-transparent text-[13px] text-text-2 pr-4 outline-none appearance-none cursor-pointer max-w-[130px]"
-                >
-                  <option value="" disabled>
-                    Target country
-                  </option>
-                  {COUNTRIES.map(c => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-                <svg
-                  className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 text-text-3"
-                  viewBox="0 0 10 6"
-                  fill="none"
-                >
-                  <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </div>
+              <CountryPicker value={country} onChange={setCountry} />
               <button
                 onClick={handleStart}
                 disabled={!canStart}
