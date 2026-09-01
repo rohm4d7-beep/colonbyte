@@ -17,6 +17,12 @@ const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
 
 const app = express();
 app.disable('x-powered-by');
+// Render (like Fly/Railway) puts one reverse proxy in front of the app — express-rate-limit
+// refuses to trust the X-Forwarded-For header it relies on for real client IPs unless this is
+// set, and throws on every rate-limited request instead of silently doing the wrong thing.
+// `1` means "trust exactly one hop," matching a single reverse proxy; it stays correct for
+// local dev too since there's no proxy there and the header is simply absent.
+app.set('trust proxy', 1);
 app.use(
   helmet({
     // Demo site pages (routes/demo.js) load Google Fonts and hotlink Google-hosted

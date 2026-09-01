@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: leadforge-server
+    runtime: docker
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: ./server
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      # Set for real once you have them — Render prompts for these at blueprint deploy time
+      # and stores them as secrets, never in this file.
+      - key: MONGODB_URI
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: RESEND_WEBHOOK_SECRET
+        sync: false
+      # PUBLIC_BASE_URL must be this service's own Render URL (https://leadforge-server-xxxx.onrender.com)
+      # so outreach emails link somewhere real — Render only assigns that URL after the first
+      # deploy, so leave the placeholder below and correct it in the dashboard once you know it.
+      - key: PUBLIC_BASE_URL
+        value: https://leadforge-server.onrender.com
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-20b
+      # The dashboard (leadforge/) stays local-only — this only needs to allow whatever
+      # origin your browser actually loads the dashboard from.
+      - key: CLIENT_ORIGIN
+        value: http://localhost:3000

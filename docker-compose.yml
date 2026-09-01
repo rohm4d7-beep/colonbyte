@@ -17,6 +17,9 @@ services:
   server:
     build: ./server
     restart: unless-stopped
+    # Dockerfile's CMD is `npm start` (production, for Render/Fly) — locally we want
+    # `npm run dev`'s --watch so the bind-mounted source below actually hot-reloads.
+    command: npm run dev
     depends_on:
       mongo:
         condition: service_healthy
