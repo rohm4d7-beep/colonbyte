@@ -56,19 +56,28 @@ async function fetchViaAxios(url) {
 // site (e.g. a hotel chain's official page) can still 403 a raw axios request. Only a real
 // browser engine clears that, so fall back to headless Chromium (already a project dependency
 // for the Maps scraper, which faces the same class of bot detection) before calling it broken.
-async function fetchViaBrowser(url) {
-  let browser;
+//
+// `sharedBrowser` lets a batch caller (routes/scrape.js) pass one browser instance for the
+// whole job instead of paying a fresh ~1-2s Chromium launch per item — with categories that
+// trigger this fallback often (e.g. hotels behind Cloudflare), that launch cost alone was the
+// dominant chunk of a scrape job's runtime. Falls back to launching its own when none is given.
+async function fetchViaBrowser(url, sharedBrowser) {
+  let ownBrowser;
   try {
-    browser = await chromium.launch({ headless: true });
+    const browser = sharedBrowser || (ownBrowser = await chromium.launch({ headless: true }));
     const page = await browser.newPage({ userAgent: BROWSER_UA });
-    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    if (!response) return { ok: false, blocked: false };
-    if (response.status() < 400) return { ok: true, html: await page.content() };
-    return { ok: false, blocked: true };
+    try {
+      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      if (!response) return { ok: false, blocked: false };
+      if (response.status() < 400) return { ok: true, html: await page.content() };
+      return { ok: false, blocked: true };
+    } finally {
+      await page.close();
+    }
   } catch {
     return { ok: false, blocked: false };
   } finally {
-    if (browser) await browser.close();
+    if (ownBrowser) await ownBrowser.close();
   }
 }
 
@@ -76,8 +85,9 @@ async function fetchViaBrowser(url) {
  * Rule-based website classification + quality score (0-100), no AI calls.
  * Anything other than a solid `has_website` result is flagged highPriority,
  * since those are the businesses that actually need a new site.
+ * `sharedBrowser` — see fetchViaBrowser above.
  */
-export async function analyzeWebsite(website) {
+export async function analyzeWebsite(website, sharedBrowser) {
   if (!website) {
     return { status: 'none', websiteQualityScore: 0, highPriority: true };
   }
@@ -92,7 +102,7 @@ export async function analyzeWebsite(website) {
   const url = website.startsWith('http') ? website : `https://${website}`;
 
   const first = await fetchViaAxios(url);
-  const second = first.ok ? null : await fetchViaBrowser(url);
+  const second = first.ok ? null : await fetchViaBrowser(url, sharedBrowser);
   const result = first.ok ? first : second;
 
   if (!result.ok) {

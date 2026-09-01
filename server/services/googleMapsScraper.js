@@ -115,24 +115,40 @@ async function autoScroll(page, feedSelector, targetCount) {
   // Raised alongside MAX_RESULTS (80) — the stagnant-rounds break below still stops early
   // once Maps genuinely has no more results, so this only affects how long we're willing to
   // keep trying, not how long we wait when there's nothing left to load.
-  for (let i = 0; i < 50; i++) {
+  //
+  // A broad, country-level query (e.g. "hotels United Kingdom" rather than a city) makes Maps
+  // load each next batch noticeably slower than a local search does — the old 700ms wait /
+  // 3-stagnant-round break combo was tripping the "no more results" exit while a batch was
+  // still in flight, capping `found` around 10-20 well short of MAX_RESULTS. More tolerance
+  // for slow batches fixes that; it costs nothing once results genuinely stop growing since the
+  // stagnant-round check still exits early in that case.
+  for (let i = 0; i < 60; i++) {
     const count = await page.locator(`${feedSelector} a[href*="/maps/place/"]`).count();
     if (count >= targetCount) break;
 
     if (count === previousCount) {
       stagnantRounds++;
-      if (stagnantRounds >= 3) break;
+      if (stagnantRounds >= 6) break;
     } else {
       stagnantRounds = 0;
     }
     previousCount = count;
 
-    await page.evaluate((sel) => {
-      const feed = document.querySelector(sel);
-      if (feed) feed.scrollBy(0, 1200);
-    }, feedSelector);
+    // Google's virtualized feed list responds far more reliably to a real wheel event than to
+    // a programmatic scrollTop change — the latter can silently fail to trigger the next batch
+    // load on broad searches even though it works fine for typical city-scoped ones.
+    const box = await page.locator(feedSelector).boundingBox().catch(() => null);
+    if (box) {
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.wheel(0, 1200);
+    } else {
+      await page.evaluate((sel) => {
+        const feed = document.querySelector(sel);
+        if (feed) feed.scrollBy(0, 1200);
+      }, feedSelector);
+    }
 
-    await page.waitForTimeout(700);
+    await page.waitForTimeout(1100);
   }
 }
 

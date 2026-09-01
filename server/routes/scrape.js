@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { rateLimit } from 'express-rate-limit';
+import { chromium } from 'playwright';
 import Lead from '../models/Lead.js';
 import { scrapeGoogleMaps } from '../services/googleMapsScraper.js';
 import { extractEmailFromWebsite } from '../services/emailExtractor.js';
@@ -28,6 +29,12 @@ function broadcast(jobId, payload) {
 
 async function runJob(jobId, keyword, targetCountry) {
   const counts = { rejected: 0, duplicates: 0, saved: 0, hasWebsite: 0, unverified: 0 };
+
+  // Shared across every item in this job — analyzeWebsite() only needs it as a fallback for
+  // axios-blocked sites, but launching a fresh Chromium process per item (on top of the Maps
+  // scraper's own browser) was the dominant cost on categories like hotels where most sites
+  // sit behind a WAF. One browser, many pages, closed once the whole job finishes.
+  const analysisBrowser = await chromium.launch({ headless: true });
 
   try {
     await scrapeGoogleMaps(keyword, {
@@ -57,7 +64,7 @@ async function runJob(jobId, keyword, targetCountry) {
         // silently dropped: it still gets saved for manual review, just without the paid AI
         // report/demo (see the highPriority gate below), so it can't be mistaken for a
         // confirmed opportunity either.
-        const websiteAnalysis = await analyzeWebsite(item.website);
+        const websiteAnalysis = await analyzeWebsite(item.website, analysisBrowser);
         const confirmedHasWebsite = !websiteAnalysis.highPriority && websiteAnalysis.status !== 'unverified';
         if (confirmedHasWebsite) {
           counts.hasWebsite += 1;
@@ -135,6 +142,8 @@ async function runJob(jobId, keyword, targetCountry) {
   } catch (err) {
     console.error(`[scrape] job ${jobId} failed:`, err.message);
     broadcast(jobId, { found: 0, processed: 0, ...(jobs.get(jobId)?.last || {}), ...counts, status: 'error' });
+  } finally {
+    await analysisBrowser.close();
   }
 }
 
