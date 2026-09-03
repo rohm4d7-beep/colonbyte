@@ -44,9 +44,9 @@ export function renderServicesList(services, accentColor) {
 export function renderContactFooter(lead) {
   return `
     <div style="display:flex;flex-wrap:wrap;gap:32px;">
-      ${lead.address ? `<div><div style="font:600 12px system-ui,sans-serif;text-transform:uppercase;letter-spacing:0.06em;opacity:0.6;margin-bottom:6px;">Address</div><div style="font:400 14px system-ui,sans-serif;">${escapeHtml(lead.address)}</div></div>` : ''}
-      ${lead.phone ? `<div><div style="font:600 12px system-ui,sans-serif;text-transform:uppercase;letter-spacing:0.06em;opacity:0.6;margin-bottom:6px;">Phone</div><div style="font:400 14px system-ui,sans-serif;">${escapeHtml(lead.phone)}</div></div>` : ''}
-      ${lead.openingHoursSummary ? `<div><div style="font:600 12px system-ui,sans-serif;text-transform:uppercase;letter-spacing:0.06em;opacity:0.6;margin-bottom:6px;">Hours</div><div style="font:400 14px system-ui,sans-serif;">${escapeHtml(lead.openingHoursSummary)}</div></div>` : ''}
+      ${lead.address ? `<div><div style="font:500 12.5px system-ui,sans-serif;opacity:0.55;margin-bottom:6px;">Address</div><div style="font:400 14px system-ui,sans-serif;">${escapeHtml(lead.address)}</div></div>` : ''}
+      ${lead.phone ? `<div><div style="font:500 12.5px system-ui,sans-serif;opacity:0.55;margin-bottom:6px;">Phone</div><div style="font:400 14px system-ui,sans-serif;">${escapeHtml(lead.phone)}</div></div>` : ''}
+      ${lead.openingHoursSummary ? `<div><div style="font:500 12.5px system-ui,sans-serif;opacity:0.55;margin-bottom:6px;">Hours</div><div style="font:400 14px system-ui,sans-serif;">${escapeHtml(lead.openingHoursSummary)}</div></div>` : ''}
     </div>
   `;
 }
