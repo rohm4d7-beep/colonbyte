@@ -88,12 +88,31 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const [savingWhatsappDraft, setSavingWhatsappDraft] = useState(false);
   const [whatsappError, setWhatsappError] = useState(null);
   const [whatsappMessage, setWhatsappMessage] = useState('');
+  const [generatingFollowUpEmail, setGeneratingFollowUpEmail] = useState(false);
+  const [sendingFollowUpEmail, setSendingFollowUpEmail] = useState(false);
+  const [followUpEmailError, setFollowUpEmailError] = useState(null);
+  const [followUpSubject, setFollowUpSubject] = useState('');
+  const [followUpBody, setFollowUpBody] = useState('');
+  const [generatingFollowUpWhatsapp, setGeneratingFollowUpWhatsapp] = useState(false);
+  const [followUpWhatsappError, setFollowUpWhatsappError] = useState(null);
+  const [followUpWhatsappMessage, setFollowUpWhatsappMessage] = useState('');
 
   useEffect(() => {
     setSubject(lead?.outreach?.subject || '');
     setBody(lead?.outreach?.body || '');
     setOutreachError(null);
   }, [lead?._id, lead?.outreach?.generatedAt]);
+
+  useEffect(() => {
+    setFollowUpSubject(lead?.outreachFollowUp?.subject || '');
+    setFollowUpBody(lead?.outreachFollowUp?.body || '');
+    setFollowUpEmailError(null);
+  }, [lead?._id, lead?.outreachFollowUp?.generatedAt]);
+
+  useEffect(() => {
+    setFollowUpWhatsappMessage(lead?.whatsappFollowUp?.message || '');
+    setFollowUpWhatsappError(null);
+  }, [lead?._id, lead?.whatsappFollowUp?.generatedAt]);
 
   useEffect(() => {
     setWhatsappMessage(lead?.whatsappOutreach?.message || '');
@@ -269,6 +288,107 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     }
   };
 
+  const handleGenerateFollowUpEmail = async () => {
+    if (!lead) return;
+    setGeneratingFollowUpEmail(true);
+    setFollowUpEmailError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/generate-followup-email`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Follow-up draft generation failed.');
+      }
+      const updated = await res.json();
+      onUpdated?.(updated);
+    } catch (err) {
+      setFollowUpEmailError(err.message || 'Follow-up draft generation failed.');
+    } finally {
+      setGeneratingFollowUpEmail(false);
+    }
+  };
+
+  const saveFollowUpEmailDraft = async () => {
+    const res = await fetch(`${API_BASE}/api/leads/${lead._id}/followup-email`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject: followUpSubject, body: followUpBody }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to save draft.');
+    }
+    return res.json();
+  };
+
+  const handleSendFollowUpEmail = async () => {
+    if (!lead) return;
+    if (!window.confirm(`Send this follow-up to ${lead.email}? This cannot be undone.`)) return;
+    setSendingFollowUpEmail(true);
+    setFollowUpEmailError(null);
+    try {
+      await saveFollowUpEmailDraft();
+      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/send-followup-email`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to send follow-up.');
+      }
+      const updated = await res.json();
+      onUpdated?.(updated);
+    } catch (err) {
+      setFollowUpEmailError(err.message || 'Failed to send follow-up.');
+    } finally {
+      setSendingFollowUpEmail(false);
+    }
+  };
+
+  const handleGenerateFollowUpWhatsapp = async () => {
+    if (!lead) return;
+    setGeneratingFollowUpWhatsapp(true);
+    setFollowUpWhatsappError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/generate-followup-whatsapp`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Follow-up draft generation failed.');
+      }
+      const updated = await res.json();
+      onUpdated?.(updated);
+    } catch (err) {
+      setFollowUpWhatsappError(err.message || 'Follow-up draft generation failed.');
+    } finally {
+      setGeneratingFollowUpWhatsapp(false);
+    }
+  };
+
+  const saveFollowUpWhatsappDraft = async () => {
+    const res = await fetch(`${API_BASE}/api/leads/${lead._id}/followup-whatsapp`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: followUpWhatsappMessage }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to save draft.');
+    }
+    return res.json();
+  };
+
+  const handleOpenFollowUpWhatsapp = async () => {
+    if (!lead) return;
+    setFollowUpWhatsappError(null);
+    try {
+      await saveFollowUpWhatsappDraft();
+      const digits = (lead.normalizedPhone || lead.phone || '').replace(/[^\d]/g, '');
+      if (!digits) throw new Error('No usable phone number for this lead.');
+      const url = `https://wa.me/${digits}?text=${encodeURIComponent(followUpWhatsappMessage)}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/followup-whatsapp-opened`, { method: 'POST' });
+      if (res.ok) onUpdated?.(await res.json());
+    } catch (err) {
+      setFollowUpWhatsappError(err.message || 'Could not open WhatsApp.');
+    }
+  };
+
   const analysis = lead?.aiAnalysis;
   const analysisStatus = analysis?.status || 'pending';
   const demoSite = lead?.demoSite;
@@ -279,6 +399,10 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const whatsappOutreach = lead?.whatsappOutreach;
   const whatsappStatus = whatsappOutreach?.status || 'pending';
   const whatsappReady = outreachReady && !!lead?.phone;
+  const followUpEmail = lead?.outreachFollowUp;
+  const followUpEmailStatus = followUpEmail?.status || 'pending';
+  const followUpWhatsapp = lead?.whatsappFollowUp;
+  const followUpWhatsappStatus = followUpWhatsapp?.status || 'pending';
 
   return (
     <AnimatePresence>
@@ -533,6 +657,73 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                     <p className="text-[11.5px] text-text-3">
                       Sent {outreach.sentAt ? new Date(outreach.sentAt).toLocaleString() : ''}
                     </p>
+
+                    <div className="pt-1 border-t" style={{ borderColor: 'var(--color-border)' }}>
+                      {followUpEmailStatus === 'sent' ? (
+                        <div className="space-y-2 pt-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wider text-text-3">Follow-up</p>
+                          <div className="rounded-md p-3 space-y-1.5" style={{ background: 'var(--color-surface-2)' }}>
+                            <p className="text-[12.5px] font-medium text-text">{followUpEmail.subject}</p>
+                            <p className="text-[12.5px] text-text-2 whitespace-pre-wrap leading-relaxed">{followUpEmail.body}</p>
+                          </div>
+                          <p className="text-[11.5px] text-text-3">
+                            Sent {followUpEmail.sentAt ? new Date(followUpEmail.sentAt).toLocaleString() : ''}
+                          </p>
+                        </div>
+                      ) : followUpEmailStatus === 'drafted' ? (
+                        <div className="space-y-2 pt-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wider text-text-3">Follow-up</p>
+                          <input
+                            value={followUpSubject}
+                            onChange={(e) => setFollowUpSubject(e.target.value)}
+                            maxLength={200}
+                            className="w-full h-8 px-2.5 rounded text-[12.5px] text-text border"
+                            style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
+                            placeholder="Subject"
+                          />
+                          <textarea
+                            value={followUpBody}
+                            onChange={(e) => setFollowUpBody(e.target.value)}
+                            maxLength={5000}
+                            rows={5}
+                            className="w-full px-2.5 py-2 rounded text-[12.5px] text-text border resize-y leading-relaxed"
+                            style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
+                            placeholder="Body"
+                          />
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={handleSendFollowUpEmail}
+                              disabled={sendingFollowUpEmail || !followUpSubject.trim() || !followUpBody.trim()}
+                              className="flex-1 flex items-center justify-center gap-1.5 h-8 px-3.5 rounded text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
+                              style={{ background: 'var(--color-accent)', color: '#ffffff' }}
+                            >
+                              {sendingFollowUpEmail && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
+                              {sendingFollowUpEmail ? 'Sending…' : 'Send Follow-up'}
+                            </button>
+                            <button
+                              onClick={handleGenerateFollowUpEmail}
+                              disabled={generatingFollowUpEmail}
+                              className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                            >
+                              {generatingFollowUpEmail ? 'Regenerating…' : 'Regenerate'}
+                            </button>
+                          </div>
+                          {followUpEmailError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{followUpEmailError}</p>}
+                        </div>
+                      ) : (
+                        <div className="pt-3">
+                          <button
+                            onClick={handleGenerateFollowUpEmail}
+                            disabled={generatingFollowUpEmail}
+                            className="flex items-center gap-1.5 h-8 px-3.5 rounded text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                          >
+                            {generatingFollowUpEmail && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
+                            {generatingFollowUpEmail ? 'Drafting…' : followUpEmailStatus === 'failed' ? 'Retry Follow-up' : 'Draft Follow-up'}
+                          </button>
+                          {followUpEmailError && <p className="text-[12px] mt-1.5" style={{ color: 'var(--color-danger)' }}>{followUpEmailError}</p>}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : outreachStatus === 'drafted' ? (
                   <div className="space-y-2.5">
@@ -628,6 +819,69 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                     >
                       Open again
                     </button>
+
+                    <div className="pt-2 border-t" style={{ borderColor: 'var(--color-border)' }}>
+                      {followUpWhatsappStatus === 'opened' ? (
+                        <div className="space-y-2 pt-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wider text-text-3">Follow-up</p>
+                          <div className="rounded-md p-3" style={{ background: 'var(--color-surface-2)' }}>
+                            <p className="text-[12.5px] text-text-2 whitespace-pre-wrap leading-relaxed">{followUpWhatsapp.message}</p>
+                          </div>
+                          <p className="text-[11.5px] text-text-3">
+                            Opened {followUpWhatsapp.openedAt ? new Date(followUpWhatsapp.openedAt).toLocaleString() : ''}
+                          </p>
+                          <button
+                            onClick={handleOpenFollowUpWhatsapp}
+                            className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150"
+                          >
+                            Open again
+                          </button>
+                        </div>
+                      ) : followUpWhatsappStatus === 'drafted' ? (
+                        <div className="space-y-2 pt-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wider text-text-3">Follow-up</p>
+                          <textarea
+                            value={followUpWhatsappMessage}
+                            onChange={(e) => setFollowUpWhatsappMessage(e.target.value)}
+                            maxLength={2000}
+                            rows={4}
+                            className="w-full px-2.5 py-2 rounded text-[12.5px] text-text border resize-y leading-relaxed"
+                            style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
+                            placeholder="Message"
+                          />
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={handleOpenFollowUpWhatsapp}
+                              disabled={!followUpWhatsappMessage.trim() || !lead.phone}
+                              className="flex-1 flex items-center justify-center h-8 px-3.5 rounded text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
+                              style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
+                            >
+                              Open Follow-up
+                            </button>
+                            <button
+                              onClick={handleGenerateFollowUpWhatsapp}
+                              disabled={generatingFollowUpWhatsapp}
+                              className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                            >
+                              {generatingFollowUpWhatsapp ? 'Regenerating…' : 'Regenerate'}
+                            </button>
+                          </div>
+                          {followUpWhatsappError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{followUpWhatsappError}</p>}
+                        </div>
+                      ) : (
+                        <div className="pt-3">
+                          <button
+                            onClick={handleGenerateFollowUpWhatsapp}
+                            disabled={generatingFollowUpWhatsapp}
+                            className="flex items-center gap-1.5 h-8 px-3.5 rounded text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                          >
+                            {generatingFollowUpWhatsapp && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
+                            {generatingFollowUpWhatsapp ? 'Drafting…' : followUpWhatsappStatus === 'failed' ? 'Retry Follow-up' : 'Draft Follow-up'}
+                          </button>
+                          {followUpWhatsappError && <p className="text-[12px] mt-1.5" style={{ color: 'var(--color-danger)' }}>{followUpWhatsappError}</p>}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : whatsappStatus === 'drafted' ? (
                   <div className="space-y-2.5">

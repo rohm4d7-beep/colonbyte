@@ -83,6 +83,31 @@ const whatsappOutreachSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// One follow-up slot per channel, gated on the parent message actually having gone out
+// (outreach.status === 'sent' / whatsappOutreach.status === 'opened') - a single nudge
+// covers the "manual follow-up" use case without building a full unbounded thread.
+const followUpEmailSchema = new mongoose.Schema(
+  {
+    subject: { type: String, default: '' },
+    body: { type: String, default: '' },
+    status: { type: String, enum: ['pending', 'drafted', 'sent', 'failed'], default: 'pending' },
+    generatedAt: { type: Date, default: null },
+    sentAt: { type: Date, default: null },
+    providerMessageId: { type: String, default: '' },
+  },
+  { _id: false }
+);
+
+const followUpWhatsappSchema = new mongoose.Schema(
+  {
+    message: { type: String, default: '' },
+    status: { type: String, enum: ['pending', 'drafted', 'opened', 'failed'], default: 'pending' },
+    generatedAt: { type: Date, default: null },
+    openedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
 const leadSchema = new mongoose.Schema(
   {
     businessName: { type: String, required: true },
@@ -117,6 +142,8 @@ const leadSchema = new mongoose.Schema(
     demoSite: { type: demoSiteSchema, default: () => ({}) },
     outreach: { type: outreachSchema, default: () => ({}) },
     whatsappOutreach: { type: whatsappOutreachSchema, default: () => ({}) },
+    outreachFollowUp: { type: followUpEmailSchema, default: () => ({}) },
+    whatsappFollowUp: { type: followUpWhatsappSchema, default: () => ({}) },
     keyword: { type: String, required: true },
     status: { type: String, enum: ['new', 'contacted', 'converted'], default: 'new' },
   },

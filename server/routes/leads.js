@@ -4,8 +4,8 @@ import { rateLimit } from 'express-rate-limit';
 import Lead, { WEBSITE_STATUSES } from '../models/Lead.js';
 import { analyzeLead } from '../services/aiAnalysis.js';
 import { generateDemoContent } from '../services/demoContentGenerator.js';
-import { generateOutreach } from '../services/outreachGenerator.js';
-import { generateWhatsappOutreach } from '../services/whatsappOutreachGenerator.js';
+import { generateOutreach, generateFollowUpEmail } from '../services/outreachGenerator.js';
+import { generateWhatsappOutreach, generateFollowUpWhatsapp } from '../services/whatsappOutreachGenerator.js';
 import { sendOutreachEmail } from '../services/emailSender.js';
 import { analyzeWebsite } from '../services/websiteAnalyzer.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -296,6 +296,123 @@ router.post('/:id/send-outreach', sendLimiter, asyncHandler(async (req, res) => 
   lead.outreach.sentAt = new Date();
   lead.outreach.providerMessageId = result.messageId || '';
   if (lead.status === 'new') lead.status = 'contacted';
+  await lead.save();
+
+  res.json(lead);
+}));
+
+router.post('/:id/generate-followup-email', analyzeLimiter, asyncHandler(async (req, res) => {
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (lead.outreach?.status !== 'sent') {
+    return res.status(409).json({ error: 'Send the first email before drafting a follow-up.' });
+  }
+  if (lead.outreachFollowUp?.status === 'sent') {
+    return res.status(409).json({ error: 'The follow-up has already been sent.' });
+  }
+
+  const followUp = await generateFollowUpEmail(lead);
+  lead.outreachFollowUp = { ...lead.outreachFollowUp.toObject(), ...followUp };
+  await lead.save();
+
+  res.json(lead);
+}));
+
+router.patch('/:id/followup-email', asyncHandler(async (req, res) => {
+  const { subject, body } = req.body || {};
+  if (typeof subject !== 'string' || !subject.trim() || subject.length > 200) {
+    return res.status(400).json({ error: 'Subject is required (max 200 characters).' });
+  }
+  if (typeof body !== 'string' || !body.trim() || body.length > 5000) {
+    return res.status(400).json({ error: 'Body is required (max 5000 characters).' });
+  }
+
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (lead.outreachFollowUp?.status === 'sent') {
+    return res.status(409).json({ error: 'The follow-up has already been sent.' });
+  }
+
+  lead.outreachFollowUp.subject = subject.trim();
+  lead.outreachFollowUp.body = body.trim();
+  if (lead.outreachFollowUp.status === 'pending' || lead.outreachFollowUp.status === 'failed') {
+    lead.outreachFollowUp.status = 'drafted';
+  }
+  await lead.save();
+
+  res.json(lead);
+}));
+
+router.post('/:id/send-followup-email', sendLimiter, asyncHandler(async (req, res) => {
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (!lead.email) return res.status(400).json({ error: 'This lead has no email address.' });
+  if (lead.outreachFollowUp?.status === 'sent') {
+    return res.status(409).json({ error: 'The follow-up has already been sent.' });
+  }
+  if (lead.outreachFollowUp?.status !== 'drafted') {
+    return res.status(409).json({ error: 'Generate and review a follow-up draft before sending.' });
+  }
+
+  const result = await sendOutreachEmail({
+    to: lead.email,
+    subject: lead.outreachFollowUp.subject,
+    body: lead.outreachFollowUp.body,
+    leadId: lead._id,
+  });
+
+  if (!result.success) {
+    lead.outreachFollowUp.status = 'failed';
+    await lead.save();
+    return res.status(502).json({ error: result.error || 'Failed to send email.' });
+  }
+
+  lead.outreachFollowUp.status = 'sent';
+  lead.outreachFollowUp.sentAt = new Date();
+  lead.outreachFollowUp.providerMessageId = result.messageId || '';
+  await lead.save();
+
+  res.json(lead);
+}));
+
+router.post('/:id/generate-followup-whatsapp', analyzeLimiter, asyncHandler(async (req, res) => {
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (lead.whatsappOutreach?.status !== 'opened') {
+    return res.status(409).json({ error: 'Open the first WhatsApp message before drafting a follow-up.' });
+  }
+
+  const followUp = await generateFollowUpWhatsapp(lead);
+  lead.whatsappFollowUp = { ...lead.whatsappFollowUp.toObject(), ...followUp };
+  await lead.save();
+
+  res.json(lead);
+}));
+
+router.patch('/:id/followup-whatsapp', asyncHandler(async (req, res) => {
+  const { message } = req.body || {};
+  if (typeof message !== 'string' || !message.trim() || message.length > 2000) {
+    return res.status(400).json({ error: 'Message is required (max 2000 characters).' });
+  }
+
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+
+  lead.whatsappFollowUp.message = message.trim();
+  if (lead.whatsappFollowUp.status === 'pending' || lead.whatsappFollowUp.status === 'failed') {
+    lead.whatsappFollowUp.status = 'drafted';
+  }
+  await lead.save();
+
+  res.json(lead);
+}));
+
+router.post('/:id/followup-whatsapp-opened', asyncHandler(async (req, res) => {
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+
+  lead.whatsappFollowUp.status = 'opened';
+  lead.whatsappFollowUp.openedAt = new Date();
   await lead.save();
 
   res.json(lead);
