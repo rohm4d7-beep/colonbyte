@@ -330,6 +330,32 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                     <span className="text-text-3">Phone</span>
                     <span className="text-text font-mono text-right">{lead.phone || '—'}</span>
                   </div>
+                  {lead.instagramUrl && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-text-3">Instagram</span>
+                      <a
+                        href={lead.instagramUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent text-right hover:opacity-80 transition-opacity duration-150 truncate max-w-[220px]"
+                      >
+                        {lead.instagramUrl.replace(/^https?:\/\/(www\.)?/, '')}
+                      </a>
+                    </div>
+                  )}
+                  {lead.facebookUrl && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-text-3">Facebook</span>
+                      <a
+                        href={lead.facebookUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent text-right hover:opacity-80 transition-opacity duration-150 truncate max-w-[220px]"
+                      >
+                        {lead.facebookUrl.replace(/^https?:\/\/(www\.)?/, '')}
+                      </a>
+                    </div>
+                  )}
                   <div className="flex justify-between gap-3">
                     <span className="text-text-3">Address</span>
                     <span className="text-text text-right">{lead.address || '—'}</span>

@@ -4,7 +4,7 @@ import { rateLimit } from 'express-rate-limit';
 import { chromium } from 'playwright';
 import Lead from '../models/Lead.js';
 import { scrapeGoogleMaps } from '../services/googleMapsScraper.js';
-import { extractEmailFromWebsite } from '../services/emailExtractor.js';
+import { extractContactInfoFromWebsite } from '../services/emailExtractor.js';
 import { verifyCountry, resolveCountryCode } from '../services/countryVerification.js';
 import { findDuplicateLead, normalizePhone, normalizeWebsiteDomain } from '../services/leadDedup.js';
 import { analyzeWebsite } from '../services/websiteAnalyzer.js';
@@ -76,8 +76,19 @@ async function runJob(jobId, keyword, targetCountry) {
           counts.unverified += 1;
         }
 
-        const [email, duplicate] = await Promise.all([
-          extractEmailFromWebsite(item.website),
+        // If the Maps "website" link IS a social profile (websiteAnalyzer.js already told us
+        // which kind), that URL already is the Instagram/Facebook link - use it directly
+        // rather than fetching instagram.com/facebook.com looking for a mailto link and a
+        // "follow us" href back to itself, which would never find anything.
+        const contactInfoPromise =
+          websiteAnalysis.status === 'instagram_only'
+            ? Promise.resolve({ email: '', instagramUrl: item.website, facebookUrl: '' })
+            : websiteAnalysis.status === 'facebook_only'
+            ? Promise.resolve({ email: '', instagramUrl: '', facebookUrl: item.website })
+            : extractContactInfoFromWebsite(item.website);
+
+        const [contactInfo, duplicate] = await Promise.all([
+          contactInfoPromise,
           findDuplicateLead({
             businessName: item.businessName,
             phone: item.phone,
@@ -87,6 +98,7 @@ async function runJob(jobId, keyword, targetCountry) {
             placeId: item.placeId,
           }),
         ]);
+        const { email, instagramUrl, facebookUrl } = contactInfo;
 
         // No email means no automated outreach on this lead (routes/leads.js + the dashboard
         // both already gate send-outreach on lead.email being set) - but it's still a real,
@@ -109,6 +121,8 @@ async function runJob(jobId, keyword, targetCountry) {
         const fields = {
           businessName: item.businessName,
           email,
+          instagramUrl,
+          facebookUrl,
           phone: item.phone,
           normalizedPhone: normalizePhone(item.phone),
           website: item.website,

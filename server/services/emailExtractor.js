@@ -34,6 +34,31 @@ function extractFromText($) {
   return [...new Set(matches)].filter(looksReal);
 }
 
+// Real business sites commonly link out to their own Instagram/Facebook in the header,
+// footer, or a "follow us" block — same page load already paid for to find an email, so
+// pulling these out too is free. Skip share-widget/plugin links (sharer.php, /dialog/,
+// /tr?, a bare instagram.com/instagram or facebook.com/facebook.com root) which are
+// platform chrome, not the business's own profile.
+function extractSocialLinks($, base) {
+  function firstProfileLink(hostPattern, skipPattern) {
+    const href = $(`a[href*="${hostPattern}"]`)
+      .toArray()
+      .map(el => $(el).attr('href') || '')
+      .find(h => h && !skipPattern.test(h));
+    if (!href) return '';
+    try {
+      return new URL(href, base).toString().split('?')[0];
+    } catch {
+      return '';
+    }
+  }
+
+  return {
+    instagramUrl: firstProfileLink('instagram.com', /\/(p|reel|explore|accounts)\//i),
+    facebookUrl: firstProfileLink('facebook.com', /(sharer\.php|\/dialog\/|\/tr\?|\/plugins\/)/i),
+  };
+}
+
 async function fetchPage(url) {
   // Same fix as websiteAnalyzer.js: a self-identifying bot UA gets flat-out 403'd by basic
   // WAFs on plenty of working sites, silently starving this of an email it could've found.
@@ -57,42 +82,52 @@ function findEmails(html) {
   return extractFromText($);
 }
 
-async function findEmailOnSite(base) {
+async function findContactInfoOnSite(base) {
   const html = await fetchPage(base);
-  const emails = findEmails(html);
-  if (emails.length > 0) return emails[0];
-
   const $ = cheerio.load(html);
-  const contactHref = $('a')
-    .toArray()
-    .map(el => $(el).attr('href') || '')
-    .find(href => /contact/i.test(href));
+  const emails = findEmails(html);
+  const social = extractSocialLinks($, base);
+  let email = emails[0] || '';
 
-  if (contactHref) {
-    const contactUrl = new URL(contactHref, base).toString();
-    const contactHtml = await fetchPage(contactUrl);
-    const contactEmails = findEmails(contactHtml);
-    if (contactEmails.length > 0) return contactEmails[0];
+  if (!email) {
+    const contactHref = $('a')
+      .toArray()
+      .map(el => $(el).attr('href') || '')
+      .find(href => /contact/i.test(href));
+
+    if (contactHref) {
+      const contactUrl = new URL(contactHref, base).toString();
+      const contactHtml = await fetchPage(contactUrl);
+      const contactEmails = findEmails(contactHtml);
+      if (contactEmails.length > 0) email = contactEmails[0];
+      // A homepage that skips social links entirely sometimes still lists them in its
+      // footer-less contact page (rare, but the fetch is already paid for either way).
+      if (!social.instagramUrl || !social.facebookUrl) {
+        const contact$ = cheerio.load(contactHtml);
+        const contactSocial = extractSocialLinks(contact$, contactUrl);
+        social.instagramUrl ||= contactSocial.instagramUrl;
+        social.facebookUrl ||= contactSocial.facebookUrl;
+      }
+    }
   }
 
-  return '';
+  return { email, ...social };
 }
 
-export async function extractEmailFromWebsite(website) {
-  if (!website) return '';
+export async function extractContactInfoFromWebsite(website) {
+  if (!website) return { email: '', instagramUrl: '', facebookUrl: '' };
 
   const base = website.startsWith('http') ? website : `https://${website}`;
 
-  // routes/scrape.js now drops a lead entirely when this comes back empty, so a transient
-  // network blip here (not just a genuinely email-less site) costs a real lead — same
-  // one-retry rationale as websiteAnalyzer.js's attemptFetch.
+  // A transient network blip here (not a genuinely email-less site) shouldn't cost a real
+  // lead, so retry once before giving up entirely.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      return await findEmailOnSite(base);
+      return await findContactInfoOnSite(base);
     } catch {
       // try again once, then give up
     }
   }
 
-  return '';
+  return { email: '', instagramUrl: '', facebookUrl: '' };
 }

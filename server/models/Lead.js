@@ -87,6 +87,8 @@ const leadSchema = new mongoose.Schema(
   {
     businessName: { type: String, required: true },
     email: { type: String, default: '' },
+    instagramUrl: { type: String, default: '' },
+    facebookUrl: { type: String, default: '' },
     phone: { type: String, default: '' },
     normalizedPhone: { type: String, default: '' },
     website: { type: String, default: '' },

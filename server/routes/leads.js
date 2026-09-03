@@ -26,6 +26,8 @@ async function ensureWebsiteAnalyzed(lead) {
 const EXPORT_FIELDS = [
   'businessName',
   'email',
+  'instagramUrl',
+  'facebookUrl',
   'phone',
   'website',
   'websiteStatus',
