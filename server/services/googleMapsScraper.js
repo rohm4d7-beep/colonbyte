@@ -253,21 +253,38 @@ export async function scrapeGoogleMaps(keyword, { onProgress, processItem, onIte
           const i = nextIndex++;
           if (i >= uniqueLinks.length) break;
 
+          // Under Maps load/throttling, a slow-to-settle navigation can get raced by Google's
+          // own client-side JS auto-navigating the same page (a "similar places" redirect,
+          // observed live as Playwright's "Navigation to X is interrupted by another
+          // navigation to Y") - a transient collision, not a dead listing, so one retry
+          // recovers most of them rather than losing the lead outright.
+          let item;
           try {
-            const item = await visitListing(page, uniqueLinks[i]);
-            if (item.businessName) {
+            item = await visitListing(page, uniqueLinks[i]);
+          } catch {
+            try {
+              item = await visitListing(page, uniqueLinks[i]);
+            } catch (err) {
+              console.error(`[googleMapsScraper] Failed processing ${uniqueLinks[i]}:`, err.message);
+              onItemError?.(err);
+            }
+          }
+
+          if (item?.businessName) {
+            try {
               if (processItem) await processItem(item);
               results.push(item);
+            } catch (err) {
+              // Previously swallowed silently with no logging and no counts.* increment (every
+              // counter lives inside processItem) - a listing that failed partway through
+              // (e.g. a duplicate-key race between two concurrent workers on Lead.create, see
+              // routes/scrape.js) simply vanished from every count with no trace. Log it and
+              // let the caller count it instead of skipping silently. Not retried here (unlike
+              // the visit above) - it already has its own DB-level recovery for the one known
+              // transient case.
+              console.error(`[googleMapsScraper] Failed processing ${uniqueLinks[i]}:`, err.message);
+              onItemError?.(err);
             }
-          } catch (err) {
-            // Previously swallowed silently with no logging and no counts.* increment (every
-            // counter lives inside processItem, which is exactly what throws here) - a listing
-            // that failed partway through (e.g. a duplicate-key race between two concurrent
-            // workers on Lead.create, see routes/scrape.js) simply vanished from every count
-            // with no trace, making a job's final saved total look inexplicably low. Log it and
-            // let the caller count it instead of skipping silently.
-            console.error(`[googleMapsScraper] Failed processing ${uniqueLinks[i]}:`, err.message);
-            onItemError?.(err);
           }
 
           processedCount++;
