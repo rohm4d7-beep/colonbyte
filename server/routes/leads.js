@@ -5,6 +5,7 @@ import Lead, { WEBSITE_STATUSES } from '../models/Lead.js';
 import { analyzeLead } from '../services/aiAnalysis.js';
 import { generateDemoContent } from '../services/demoContentGenerator.js';
 import { generateOutreach } from '../services/outreachGenerator.js';
+import { generateWhatsappOutreach } from '../services/whatsappOutreachGenerator.js';
 import { sendOutreachEmail } from '../services/emailSender.js';
 import { analyzeWebsite } from '../services/websiteAnalyzer.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -199,6 +200,56 @@ router.patch('/:id/outreach', asyncHandler(async (req, res) => {
   if (lead.outreach.status === 'pending' || lead.outreach.status === 'failed') {
     lead.outreach.status = 'drafted';
   }
+  await lead.save();
+
+  res.json(lead);
+}));
+
+router.post('/:id/generate-whatsapp', analyzeLimiter, asyncHandler(async (req, res) => {
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (!lead.phone) return res.status(400).json({ error: 'This lead has no phone number.' });
+  if (!isOutreachEligible(lead)) {
+    return res.status(409).json({ error: notHighPriorityMessage() });
+  }
+  if (lead.aiAnalysis?.status !== 'completed' || lead.demoSite?.status !== 'completed') {
+    return res.status(409).json({ error: 'Run AI analysis and generate the demo site before drafting a message.' });
+  }
+
+  const whatsapp = await generateWhatsappOutreach(lead);
+  lead.whatsappOutreach = { ...lead.whatsappOutreach.toObject(), ...whatsapp };
+  await lead.save();
+
+  res.json(lead);
+}));
+
+router.patch('/:id/whatsapp', asyncHandler(async (req, res) => {
+  const { message } = req.body || {};
+  if (typeof message !== 'string' || !message.trim() || message.length > 2000) {
+    return res.status(400).json({ error: 'Message is required (max 2000 characters).' });
+  }
+
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+
+  lead.whatsappOutreach.message = message.trim();
+  if (lead.whatsappOutreach.status === 'pending' || lead.whatsappOutreach.status === 'failed') {
+    lead.whatsappOutreach.status = 'drafted';
+  }
+  await lead.save();
+
+  res.json(lead);
+}));
+
+// No sending happens server-side (see whatsappOutreachSchema) - this only records that the
+// operator clicked through to WhatsApp with the draft, for visibility in the dashboard.
+router.post('/:id/whatsapp-opened', asyncHandler(async (req, res) => {
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+
+  lead.whatsappOutreach.status = 'opened';
+  lead.whatsappOutreach.openedAt = new Date();
+  if (lead.status === 'new') lead.status = 'contacted';
   await lead.save();
 
   res.json(lead);

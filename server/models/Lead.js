@@ -70,6 +70,19 @@ const outreachSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const whatsappOutreachSchema = new mongoose.Schema(
+  {
+    message: { type: String, default: '' },
+    // No 'sent' here - a wa.me click-to-chat link only opens WhatsApp with the message
+    // pre-filled, the operator still has to hit send themselves inside WhatsApp, so this app
+    // can never actually confirm delivery. 'opened' just means the link was clicked.
+    status: { type: String, enum: ['pending', 'drafted', 'opened', 'failed'], default: 'pending' },
+    generatedAt: { type: Date, default: null },
+    openedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
 const leadSchema = new mongoose.Schema(
   {
     businessName: { type: String, required: true },
@@ -101,6 +114,7 @@ const leadSchema = new mongoose.Schema(
     aiAnalysis: { type: aiAnalysisSchema, default: () => ({}) },
     demoSite: { type: demoSiteSchema, default: () => ({}) },
     outreach: { type: outreachSchema, default: () => ({}) },
+    whatsappOutreach: { type: whatsappOutreachSchema, default: () => ({}) },
     keyword: { type: String, required: true },
     status: { type: String, enum: ['new', 'contacted', 'converted'], default: 'new' },
   },

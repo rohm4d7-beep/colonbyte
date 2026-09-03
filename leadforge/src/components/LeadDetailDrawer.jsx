@@ -84,12 +84,21 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const [outreachError, setOutreachError] = useState(null);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [generatingWhatsapp, setGeneratingWhatsapp] = useState(false);
+  const [savingWhatsappDraft, setSavingWhatsappDraft] = useState(false);
+  const [whatsappError, setWhatsappError] = useState(null);
+  const [whatsappMessage, setWhatsappMessage] = useState('');
 
   useEffect(() => {
     setSubject(lead?.outreach?.subject || '');
     setBody(lead?.outreach?.body || '');
     setOutreachError(null);
   }, [lead?._id, lead?.outreach?.generatedAt]);
+
+  useEffect(() => {
+    setWhatsappMessage(lead?.whatsappOutreach?.message || '');
+    setWhatsappError(null);
+  }, [lead?._id, lead?.whatsappOutreach?.generatedAt]);
 
   const handleAnalyze = async () => {
     if (!lead) return;
@@ -196,6 +205,70 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     }
   };
 
+  const handleGenerateWhatsapp = async () => {
+    if (!lead) return;
+    setGeneratingWhatsapp(true);
+    setWhatsappError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/generate-whatsapp`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Draft generation failed.');
+      }
+      const updated = await res.json();
+      onUpdated?.(updated);
+    } catch (err) {
+      setWhatsappError(err.message || 'Draft generation failed.');
+    } finally {
+      setGeneratingWhatsapp(false);
+    }
+  };
+
+  const saveWhatsappDraft = async () => {
+    const res = await fetch(`${API_BASE}/api/leads/${lead._id}/whatsapp`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: whatsappMessage }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to save draft.');
+    }
+    return res.json();
+  };
+
+  const handleSaveWhatsappDraft = async () => {
+    if (!lead) return;
+    setSavingWhatsappDraft(true);
+    setWhatsappError(null);
+    try {
+      const updated = await saveWhatsappDraft();
+      onUpdated?.(updated);
+    } catch (err) {
+      setWhatsappError(err.message || 'Failed to save draft.');
+    } finally {
+      setSavingWhatsappDraft(false);
+    }
+  };
+
+  // wa.me only ever opens WhatsApp with the message pre-filled in the compose box - the
+  // operator still has to hit send themselves inside WhatsApp, so this can never auto-send.
+  const handleOpenWhatsapp = async () => {
+    if (!lead) return;
+    setWhatsappError(null);
+    try {
+      await saveWhatsappDraft();
+      const digits = (lead.normalizedPhone || lead.phone || '').replace(/[^\d]/g, '');
+      if (!digits) throw new Error('No usable phone number for this lead.');
+      const url = `https://wa.me/${digits}?text=${encodeURIComponent(whatsappMessage)}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/whatsapp-opened`, { method: 'POST' });
+      if (res.ok) onUpdated?.(await res.json());
+    } catch (err) {
+      setWhatsappError(err.message || 'Could not open WhatsApp.');
+    }
+  };
+
   const analysis = lead?.aiAnalysis;
   const analysisStatus = analysis?.status || 'pending';
   const demoSite = lead?.demoSite;
@@ -203,6 +276,9 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const outreach = lead?.outreach;
   const outreachStatus = outreach?.status || 'pending';
   const outreachReady = analysisStatus === 'completed' && demoStatus === 'completed' && isOutreachEligible(lead || {});
+  const whatsappOutreach = lead?.whatsappOutreach;
+  const whatsappStatus = whatsappOutreach?.status || 'pending';
+  const whatsappReady = outreachReady && !!lead?.phone;
 
   return (
     <AnimatePresence>
@@ -507,6 +583,91 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                       {generatingOutreach ? 'Drafting…' : outreachStatus === 'failed' ? 'Retry Draft' : 'Draft Outreach Email'}
                     </button>
                     {outreachError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{outreachError}</p>}
+                  </div>
+                )}
+              </Section>
+
+              <Section label="WhatsApp Outreach">
+                {whatsappStatus === 'opened' ? (
+                  <div className="space-y-3">
+                    <div className="rounded-md p-3" style={{ background: 'var(--color-surface-2)' }}>
+                      <p className="text-[12.5px] text-text-2 whitespace-pre-wrap leading-relaxed">{whatsappOutreach.message}</p>
+                    </div>
+                    <p className="text-[11.5px] text-text-3">
+                      Opened in WhatsApp {whatsappOutreach.openedAt ? new Date(whatsappOutreach.openedAt).toLocaleString() : ''} — sending itself happens inside WhatsApp, so this only confirms the link was opened.
+                    </p>
+                    <button
+                      onClick={handleOpenWhatsapp}
+                      className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150"
+                    >
+                      Open again
+                    </button>
+                  </div>
+                ) : whatsappStatus === 'drafted' ? (
+                  <div className="space-y-2.5">
+                    {!lead.phone && (
+                      <p className="text-[12px] rounded-md p-2.5" style={{ color: 'var(--color-danger)', background: 'var(--color-surface-2)' }}>
+                        This lead has no phone number — cannot open WhatsApp.
+                      </p>
+                    )}
+                    <textarea
+                      value={whatsappMessage}
+                      onChange={(e) => setWhatsappMessage(e.target.value)}
+                      maxLength={2000}
+                      rows={5}
+                      className="w-full px-2.5 py-2 rounded text-[12.5px] text-text border resize-y leading-relaxed"
+                      style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
+                      placeholder="Message"
+                    />
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={handleOpenWhatsapp}
+                        disabled={savingWhatsappDraft || !whatsappMessage.trim() || !lead.phone}
+                        className="flex-1 flex items-center justify-center gap-1.5 h-8 px-3.5 rounded text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
+                        style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
+                      >
+                        Open in WhatsApp
+                      </button>
+                      <button
+                        onClick={handleSaveWhatsappDraft}
+                        disabled={savingWhatsappDraft}
+                        className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                      >
+                        {savingWhatsappDraft ? 'Saving…' : 'Save Draft'}
+                      </button>
+                    </div>
+                    <button
+                      onClick={handleGenerateWhatsapp}
+                      disabled={generatingWhatsapp}
+                      className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                    >
+                      {generatingWhatsapp ? 'Regenerating…' : 'Regenerate Draft'}
+                    </button>
+                    {whatsappError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{whatsappError}</p>}
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-dashed p-4 flex flex-col items-center gap-2.5 text-center" style={{ borderColor: 'var(--color-border-strong)' }}>
+                    <p className="text-[12.5px] text-text-3">
+                      {!lead.phone
+                        ? 'This lead has no phone number.'
+                        : analysisStatus === 'completed' && demoStatus === 'completed' && !isOutreachEligible(lead)
+                        ? notHighPriorityMessage()
+                        : !whatsappReady
+                        ? 'Complete AI analysis and demo generation first.'
+                        : whatsappStatus === 'failed'
+                        ? 'Draft generation failed — try again.'
+                        : 'No WhatsApp message drafted yet.'}
+                    </p>
+                    <button
+                      onClick={handleGenerateWhatsapp}
+                      disabled={generatingWhatsapp || !whatsappReady}
+                      className="flex items-center gap-1.5 h-8 px-3.5 rounded text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
+                      style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
+                    >
+                      {generatingWhatsapp && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
+                      {generatingWhatsapp ? 'Drafting…' : whatsappStatus === 'failed' ? 'Retry Draft' : 'Draft WhatsApp Message'}
+                    </button>
+                    {whatsappError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{whatsappError}</p>}
                   </div>
                 )}
               </Section>
