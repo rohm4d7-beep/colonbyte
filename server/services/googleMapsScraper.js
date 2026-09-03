@@ -11,7 +11,12 @@ const BROWSER_UA =
 // visiting only 20 raw listings would leave very few actual leads. Visit more candidates
 // per job to compensate; ~80-100 is roughly what a single Maps local-pack search can
 // surface via scrolling before results stop growing.
-const MAX_RESULTS = 150;
+//
+// This is now the combined budget across every city searched (see topCitiesForCountry,
+// CITIES_PER_COUNTRY=12) rather than per search, split evenly per city in
+// scrapeGoogleMaps - raised alongside that so each city still gets a decent per-term cap
+// (~24 at 12 cities) instead of shrinking to a handful once split 12 ways.
+const MAX_RESULTS = 288;
 
 // Listings were visited one at a time on a single tab — almost all of the time per item is
 // spent waiting on network I/O (Maps navigation, website checks, email extraction, AI calls),

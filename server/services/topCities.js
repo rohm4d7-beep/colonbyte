@@ -7,7 +7,7 @@ import cities from 'all-the-cities';
 // search once per major city and merging results - this picks which cities, from GeoNames
 // population data (via the all-the-cities package) rather than a hand-typed list, so it
 // covers every supported country without guessing city names from memory.
-const CITIES_PER_COUNTRY = 5;
+const CITIES_PER_COUNTRY = 12;
 
 let byCountry = null;
 
