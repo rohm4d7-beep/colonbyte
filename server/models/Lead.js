@@ -32,13 +32,20 @@ const demoSiteSchema = new mongoose.Schema(
   {
     templateKey: { type: String, enum: TEMPLATE_KEYS },
     accentColor: { type: String, enum: ACCENT_COLORS },
+    // A curated set of 3+ colors (from ACCENT_COLORS) the AI judged as fitting this specific
+    // business's vibe, picked once on first generation. accentColor is shuffled from this set
+    // on every generate (including the first) — gives real per-regenerate variety while never
+    // drifting into a color that doesn't suit the business, unlike picking freely from all of
+    // ACCENT_COLORS each time.
+    accentColorOptions: { type: [String], default: [] },
     tagline: { type: String, default: '' },
     aboutText: { type: String, default: '' },
     services: { type: [String], default: [] },
     ctaText: { type: String, default: '' },
-    // Curated stock photo (services/imageSearch.js) matched to the business's category/vibe —
-    // preferred over the scraped Google Maps photo (lead.photos[0]), which is whatever Google
-    // happens to have as the first listing photo and is often not flattering or representative.
+    // A good real photo of the business itself, AI-picked from several scraped from its Google
+    // Maps listing (services/listingPhotoScraper.js + photoSelector.js) — falls back to a
+    // curated stock photo (services/imageSearch.js), then to the single scraped hero photo
+    // (lead.photos[0]) if neither AI step finds anything usable.
     heroImage: { type: String, default: '' },
     status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
     generatedAt: { type: Date, default: null },
@@ -97,8 +104,22 @@ const leadSchema = new mongoose.Schema(
     keyword: { type: String, required: true },
     status: { type: String, enum: ['new', 'contacted', 'converted'], default: 'new' },
   },
-  { timestamps: true }
+  { timestamps: true, toJSON: { virtuals: true } }
 );
+
+// Same absolute URL outreachGenerator.js embeds in outreach emails — exposed here so the
+// dashboard's own "Preview Demo" link always opens the real public demo instead of a
+// relative /demo/:id that breaks depending on which local port the dashboard happens to
+// be loaded from. Exported separately because routes/leads.js's list endpoint uses .lean()
+// (plain objects, no virtuals) for performance and must attach this by hand.
+export function demoPreviewUrlFor(lead) {
+  if (lead.demoSite?.status !== 'completed') return null;
+  return `${process.env.PUBLIC_BASE_URL || ''}/demo/${lead._id}`;
+}
+
+leadSchema.virtual('demoPreviewUrl').get(function () {
+  return demoPreviewUrlFor(this);
+});
 
 leadSchema.index({ businessName: 1, keyword: 1 });
 leadSchema.index({ placeId: 1 }, { unique: true, sparse: true });
