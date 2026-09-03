@@ -85,12 +85,14 @@ async function runJob(jobId, keyword, targetCountry) {
           }),
         ]);
 
-        // No email means no way to run outreach on this lead at all — not worth saving.
-        // (Leads with no website can never reach this with an email, since
-        // extractEmailFromWebsite has no website to scrape; they're dropped here too.)
+        // No email means no automated outreach on this lead (routes/leads.js + the dashboard
+        // both already gate send-outreach on lead.email being set) - but it's still a real,
+        // contactable business (phone/address are still real signals), and for genuinely
+        // no-website leads especially - this tool's core target - dropping it here would throw
+        // away exactly the leads it exists to find. Save it either way; just track how many
+        // came in without an email for visibility in the progress UI.
         if (!email) {
           counts.noEmail += 1;
-          return;
         }
 
         // The bulk Maps visit above only ever grabs the single hero photo (opening the full
