@@ -104,22 +104,8 @@ const leadSchema = new mongoose.Schema(
     keyword: { type: String, required: true },
     status: { type: String, enum: ['new', 'contacted', 'converted'], default: 'new' },
   },
-  { timestamps: true, toJSON: { virtuals: true } }
+  { timestamps: true }
 );
-
-// Same absolute URL outreachGenerator.js embeds in outreach emails — exposed here so the
-// dashboard's own "Preview Demo" link always opens the real public demo instead of a
-// relative /demo/:id that breaks depending on which local port the dashboard happens to
-// be loaded from. Exported separately because routes/leads.js's list endpoint uses .lean()
-// (plain objects, no virtuals) for performance and must attach this by hand.
-export function demoPreviewUrlFor(lead) {
-  if (lead.demoSite?.status !== 'completed') return null;
-  return `${process.env.PUBLIC_BASE_URL || ''}/demo/${lead._id}`;
-}
-
-leadSchema.virtual('demoPreviewUrl').get(function () {
-  return demoPreviewUrlFor(this);
-});
 
 leadSchema.index({ businessName: 1, keyword: 1 });
 leadSchema.index({ placeId: 1 }, { unique: true, sparse: true });

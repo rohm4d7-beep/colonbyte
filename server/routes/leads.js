@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { Parser as CsvParser } from 'json2csv';
 import { rateLimit } from 'express-rate-limit';
-import Lead, { WEBSITE_STATUSES, demoPreviewUrlFor } from '../models/Lead.js';
+import Lead, { WEBSITE_STATUSES } from '../models/Lead.js';
 import { analyzeLead } from '../services/aiAnalysis.js';
 import { generateDemoContent } from '../services/demoContentGenerator.js';
 import { generateOutreach } from '../services/outreachGenerator.js';
@@ -122,9 +122,7 @@ router.get('/', asyncHandler(async (req, res) => {
     Lead.countDocuments(filter),
   ]);
 
-  const withDemoUrls = leads.map((lead) => ({ ...lead, demoPreviewUrl: demoPreviewUrlFor(lead) }));
-
-  res.json({ leads: withDemoUrls, total, pages: Math.max(1, Math.ceil(total / limitNum)) });
+  res.json({ leads, total, pages: Math.max(1, Math.ceil(total / limitNum)) });
 }));
 
 const analyzeLimiter = rateLimit({

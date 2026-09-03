@@ -375,7 +375,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                     </div>
                     <div className="flex items-center gap-3">
                       <a
-                        href={lead.demoPreviewUrl || `/demo/${lead._id}`}
+                        href={`/demo/${lead._id}`}
                         target="_blank"
                         rel="noreferrer"
                         className="flex-1 flex items-center justify-center h-8 px-3.5 rounded text-[12.5px] font-medium transition-all duration-150 hover:brightness-110"
