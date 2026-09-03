@@ -44,7 +44,11 @@ const SYSTEM_PROMPT =
   '"The Colonbyte Team" on its own line, with nothing after it and no dash of any kind before it.\n\n' +
   'If demoUrl is present in the facts, the body MUST include that exact URL, unaltered, on its own line — ' +
   'never paraphrase it away or drop it. Never restate the aiSummary field as a sentence; read it for facts ' +
-  'and write your own words.';
+  'and write your own words.\n\n' +
+  'If websiteStatus is "unverified": their site did not load for our check (likely bot protection) — we ' +
+  'have NO evidence it is bad, outdated, or missing anything. NEVER describe it as broken, outdated, or ' +
+  'lacking in any way. Instead say plainly that you tried to pull up their site to take a look and it ' +
+  'didn\'t load for you, and offer the preview as something you put together anyway/in the meantime.';
 
 function buildUserPrompt(lead) {
   const facts = {

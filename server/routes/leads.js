@@ -47,15 +47,17 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// !highPriority is true for two genuinely different reasons (see websiteAnalyzer.js): a
-// confirmed 'has_website' with a solid quality score, vs. 'unverified' — the site's status is
-// simply unknown (likely bot-blocked our check), not confirmed good. Conflating them into one
-// "already has a solid website" message was actively false for the unverified case.
-function notHighPriorityMessage(lead) {
-  if (lead.websiteStatus === 'unverified') {
-    return "Outreach is only for high-priority leads — this business's website status couldn't be verified (likely blocked our check), so we have no evidence it needs a new site.";
-  }
-  return 'Outreach is only for high-priority leads (poor or missing website) — this business already has a solid site.';
+// 'unverified' (site up but blocked our check, e.g. WAF/bot protection) is deliberately NOT
+// highPriority (see websiteAnalyzer.js) since we have no evidence the site is actually bad -
+// but it's still a real business we couldn't confirm has a solid site either, so outreach is
+// allowed here too. outreachGenerator.js is responsible for never claiming a defect we have no
+// evidence for in that case. Only a CONFIRMED good website blocks outreach outright.
+function isOutreachEligible(lead) {
+  return lead.highPriority || lead.websiteStatus === 'unverified';
+}
+
+function notHighPriorityMessage() {
+  return 'Outreach is only for leads without a confirmed solid website — this business already has one.';
 }
 
 router.get('/stats', asyncHandler(async (req, res) => {
@@ -160,8 +162,8 @@ router.post('/:id/generate-demo', analyzeLimiter, asyncHandler(async (req, res) 
 router.post('/:id/generate-outreach', analyzeLimiter, asyncHandler(async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
-  if (!lead.highPriority) {
-    return res.status(409).json({ error: notHighPriorityMessage(lead) });
+  if (!isOutreachEligible(lead)) {
+    return res.status(409).json({ error: notHighPriorityMessage() });
   }
   if (lead.aiAnalysis?.status !== 'completed' || lead.demoSite?.status !== 'completed') {
     return res.status(409).json({ error: 'Run AI analysis and generate the demo site before drafting outreach.' });
@@ -214,8 +216,8 @@ router.post('/:id/send-outreach', sendLimiter, asyncHandler(async (req, res) => 
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
   if (!lead.email) return res.status(400).json({ error: 'This lead has no email address.' });
-  if (!lead.highPriority) {
-    return res.status(409).json({ error: notHighPriorityMessage(lead) });
+  if (!isOutreachEligible(lead)) {
+    return res.status(409).json({ error: notHighPriorityMessage() });
   }
   if (lead.outreach?.status === 'sent') {
     return res.status(409).json({ error: 'This outreach email has already been sent.' });

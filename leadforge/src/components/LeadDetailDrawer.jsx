@@ -62,14 +62,15 @@ function BulletList({ items, color }) {
   );
 }
 
-// Mirrors routes/leads.js's notHighPriorityMessage — !highPriority means either a confirmed
-// solid website, or an 'unverified' one whose status we simply don't know (likely bot-blocked
-// our check). Only the first case is actually "already has a solid website".
-function notHighPriorityMessage(lead) {
-  if (lead.websiteStatus === 'unverified') {
-    return "This business's website status couldn't be verified (likely blocked our check) — outreach is only for confirmed high-priority leads.";
-  }
-  return 'This lead already has a solid website — outreach is only for high-priority leads (poor or missing site).';
+// Mirrors routes/leads.js's isOutreachEligible/notHighPriorityMessage — an 'unverified'
+// website (status simply unknown, likely bot-blocked our check) is allowed through same as a
+// confirmed poor/missing one; only a CONFIRMED solid website blocks outreach.
+function isOutreachEligible(lead) {
+  return !!lead.highPriority || lead.websiteStatus === 'unverified';
+}
+
+function notHighPriorityMessage() {
+  return 'This lead already has a solid website — outreach is only for leads without a confirmed solid site.';
 }
 
 export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
@@ -201,7 +202,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const demoStatus = demoSite?.status || 'pending';
   const outreach = lead?.outreach;
   const outreachStatus = outreach?.status || 'pending';
-  const outreachReady = analysisStatus === 'completed' && demoStatus === 'completed' && !!lead?.highPriority;
+  const outreachReady = analysisStatus === 'completed' && demoStatus === 'completed' && isOutreachEligible(lead || {});
 
   return (
     <AnimatePresence>
@@ -433,9 +434,9 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                   </div>
                 ) : outreachStatus === 'drafted' ? (
                   <div className="space-y-2.5">
-                    {!lead.highPriority && (
+                    {!isOutreachEligible(lead) && (
                       <p className="text-[12px] rounded-md p-2.5" style={{ color: 'var(--color-danger)', background: 'var(--color-surface-2)' }}>
-                        {notHighPriorityMessage(lead)} Drafted before this restriction applied — sending is blocked.
+                        {notHighPriorityMessage()} Drafted before this restriction applied — sending is blocked.
                       </p>
                     )}
                     <input
@@ -458,7 +459,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                     <div className="flex items-center gap-3">
                       <button
                         onClick={handleSendOutreach}
-                        disabled={sending || savingDraft || !subject.trim() || !body.trim() || !lead.email || !lead.highPriority}
+                        disabled={sending || savingDraft || !subject.trim() || !body.trim() || !lead.email || !isOutreachEligible(lead)}
                         className="flex-1 flex items-center justify-center gap-1.5 h-8 px-3.5 rounded text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
                         style={{ background: 'var(--color-accent)', color: '#ffffff' }}
                       >
@@ -488,8 +489,8 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                 ) : (
                   <div className="rounded-md border border-dashed p-4 flex flex-col items-center gap-2.5 text-center" style={{ borderColor: 'var(--color-border-strong)' }}>
                     <p className="text-[12.5px] text-text-3">
-                      {analysisStatus === 'completed' && demoStatus === 'completed' && !lead.highPriority
-                        ? notHighPriorityMessage(lead)
+                      {analysisStatus === 'completed' && demoStatus === 'completed' && !isOutreachEligible(lead)
+                        ? notHighPriorityMessage()
                         : !outreachReady
                         ? 'Complete AI analysis and demo generation first.'
                         : outreachStatus === 'failed'
