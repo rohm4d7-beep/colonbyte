@@ -238,6 +238,7 @@ export default function ScrapeComposer({ onDone }) {
   const unverified = progress?.unverified || 0;
   const noEmail = progress?.noEmail || 0;
   const errored = progress?.errored || 0;
+  const searchingTerm = progress?.searchingTerm || '';
   const pct = found > 0 ? Math.min(Math.round((processed / found) * 100), 100) : jobId ? 6 : 0;
   const statusLine = found === 0 ? 'Searching Google Maps for' : 'Verifying & extracting for';
   const errorMessage = error || 'Something went wrong. Check the server logs.';
@@ -315,7 +316,8 @@ export default function ScrapeComposer({ onDone }) {
                   'Starting scrape…'
                 ) : (
                   <>
-                    {statusLine} <span className="text-text">"{keyword}"</span>
+                    {statusLine}{' '}
+                    <span className="text-text">"{found === 0 && searchingTerm ? searchingTerm : keyword}"</span>
                     <span className="text-text-3"> · {saved} saved</span>
                     {hasWebsite > 0 && (
                       <span className="text-text-3"> · {hasWebsite} have a website</span>

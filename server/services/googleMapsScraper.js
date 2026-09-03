@@ -217,28 +217,58 @@ async function visitListing(page, link) {
   };
 }
 
-export async function scrapeGoogleMaps(keyword, { onProgress, processItem, onItemError, targetCountry } = {}) {
-  const browser = await chromium.launch({ headless: true });
-  const results = [];
-
+// A single Maps search is inherently location-centered, not nationwide - "dentist Russia"
+// with no city returns only whatever one city Google defaults to (confirmed live: Moscow-area
+// results only, regardless of scrolling), the same handful no matter how broad the country
+// is. Real country coverage means running the search once per major city and merging the
+// results, so scrapeGoogleMaps takes a list of search terms (one per city, from
+// topCitiesForCountry) rather than a single term when the caller wants that.
+async function collectLinksForTerm(browser, term, maxResults) {
+  const searchPage = await browser.newPage({ userAgent: BROWSER_UA });
   try {
-    const searchPage = await browser.newPage({ userAgent: BROWSER_UA });
-    const searchTerm = targetCountry ? `${keyword} ${targetCountry}` : keyword;
-    const url = `https://www.google.com/maps/search/${encodeURIComponent(searchTerm)}`;
+    const url = `https://www.google.com/maps/search/${encodeURIComponent(term)}`;
     await searchPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     const feedSelector = 'div[role="feed"]';
     await searchPage.waitForSelector(feedSelector, { timeout: 15000 }).catch(() => {});
 
-    await autoScroll(searchPage, feedSelector, MAX_RESULTS);
+    await autoScroll(searchPage, feedSelector, maxResults);
 
     const links = await searchPage
       .locator(`${feedSelector} a[href*="/maps/place/"]`)
       .evaluateAll(els => els.map(el => el.href));
 
+    return [...new Set(links)].slice(0, maxResults);
+  } finally {
     await searchPage.close();
+  }
+}
 
-    const uniqueLinks = [...new Set(links)].slice(0, MAX_RESULTS);
+export async function scrapeGoogleMaps(keyword, { onProgress, processItem, onItemError, targetCountry, searchCities } = {}) {
+  const browser = await chromium.launch({ headless: true });
+  const results = [];
+
+  try {
+    const terms =
+      searchCities?.length > 0
+        ? searchCities.map((city) => `${keyword} ${city}`)
+        : [targetCountry ? `${keyword} ${targetCountry}` : keyword];
+
+    // Budget MAX_RESULTS across all cities combined rather than per city, so a 5-city
+    // country search doesn't take 5x as long as a single-city one.
+    const perTermCap = Math.max(10, Math.ceil(MAX_RESULTS / terms.length));
+
+    const linksByTerm = [];
+    for (const term of terms) {
+      onProgress?.({ found: 0, processed: 0, status: 'running', searchingTerm: term });
+      const links = await collectLinksForTerm(browser, term, perTermCap).catch((err) => {
+        console.error(`[googleMapsScraper] Search failed for "${term}":`, err.message);
+        return [];
+      });
+      linksByTerm.push(links);
+    }
+
+    const uniqueLinks = [...new Set(linksByTerm.flat())].slice(0, MAX_RESULTS);
     onProgress?.({ found: uniqueLinks.length, processed: 0, status: 'running' });
 
     // A handful of tabs pull from the same queue rather than a strict one-at-a-time loop —

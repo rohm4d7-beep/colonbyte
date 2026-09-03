@@ -6,6 +6,7 @@ import Lead from '../models/Lead.js';
 import { scrapeGoogleMaps } from '../services/googleMapsScraper.js';
 import { extractContactInfoFromWebsite } from '../services/emailExtractor.js';
 import { verifyCountry, resolveCountryCode } from '../services/countryVerification.js';
+import { topCitiesForCountry } from '../services/topCities.js';
 import { findDuplicateLead, normalizePhone, normalizeWebsiteDomain } from '../services/leadDedup.js';
 import { analyzeWebsite } from '../services/websiteAnalyzer.js';
 import { fetchListingPhotos } from '../services/listingPhotoScraper.js';
@@ -35,9 +36,17 @@ async function runJob(jobId, keyword, targetCountry) {
   // sit behind a WAF. One browser, many pages, closed once the whole job finishes.
   const analysisBrowser = await chromium.launch({ headless: true });
 
+  // A bare "<keyword> <country>" Maps search only ever returns one city's worth of results
+  // no matter how large the country is (confirmed live: "dentist Russia" returned only
+  // Moscow-area listings) - search each of the country's biggest cities instead so a country
+  // selection actually gets country-wide coverage. Falls back to the plain country-level
+  // search below if the country code isn't in the cities dataset.
+  const searchCities = topCitiesForCountry(resolveCountryCode(targetCountry));
+
   try {
     await scrapeGoogleMaps(keyword, {
       targetCountry,
+      searchCities,
       onProgress: (progress) => broadcast(jobId, { ...progress, ...counts }),
       onItemError: () => {
         counts.errored += 1;
