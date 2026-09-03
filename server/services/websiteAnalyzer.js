@@ -138,6 +138,21 @@ export async function analyzeWebsite(website, sharedBrowser) {
 
   const $ = cheerio.load(result.html);
 
+  // A Cloudflare/bot-challenge interstitial returns a real HTTP 200 with a real-looking page
+  // (its own title, viewport meta, etc.) - it slips past the ok/blocked check above and would
+  // otherwise get scored as if it were the actual site. Confirmed live: smnthaskloset.com came
+  // back "Checking your browser..." and scored as a solid has_website, when we never actually
+  // saw their real site at all. Same treatment as an explicitly blocked fetch: unverified, not
+  // scored, not a claim their real site is good or bad.
+  const pageSignature = `${$('title').text()} ${$('body').text().slice(0, 500)}`.toLowerCase();
+  const looksLikeChallenge =
+    /checking your browser|cf-browser-verification|just a moment\.\.\.|ddos protection by cloudflare|attention required.{0,20}cloudflare|please wait while we verify|verifying you are human|enable javascript and cookies to continue/.test(
+      pageSignature
+    );
+  if (looksLikeChallenge) {
+    return { status: 'unverified', websiteQualityScore: 0, highPriority: false };
+  }
+
   let score = 100;
   if (!url.startsWith('https://')) score -= 15;
   if ($('meta[name="viewport"]').length === 0) score -= 20;
