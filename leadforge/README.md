@@ -30,7 +30,7 @@ npm run dev                # http://localhost:5000
 # Client (separate terminal)
 cd ../leadforge
 npm install
-npm run dev                # http://localhost:3000, proxies /api to :5000
+npm run dev                # http://localhost:3002, proxies /api to :5000
 ```
 
 ### Environment variables (`server/.env`)

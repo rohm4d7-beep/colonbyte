@@ -29,4 +29,4 @@ services:
       # The dashboard (leadforge/) stays local-only — this only needs to allow whatever
       # origin your browser actually loads the dashboard from.
       - key: CLIENT_ORIGIN
-        value: http://localhost:3000
+        value: http://localhost:3002

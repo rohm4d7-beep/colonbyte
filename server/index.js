@@ -13,7 +13,7 @@ import Lead from './models/Lead.js';
 
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/leadforge';
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:3002';
 
 const app = express();
 app.disable('x-powered-by');
@@ -25,12 +25,14 @@ app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(
   helmet({
-    // Demo site pages (routes/demo.js) load Google Fonts and hotlink Google-hosted
-    // business photos — the default 'self'-only CSP would silently block both.
+    // Demo site pages (routes/demo.js) load Google Fonts, hotlink Google-hosted business
+    // photos, and fall back to a Pexels stock photo when no usable real photo was found —
+    // the default 'self'-only CSP would silently block all three (a blocked <img> just
+    // renders its alt text, no console-visible network error, which is why this went unnoticed).
     contentSecurityPolicy: {
       directives: {
         ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-        'img-src': ["'self'", 'data:', 'https://lh3.googleusercontent.com'],
+        'img-src': ["'self'", 'data:', 'https://lh3.googleusercontent.com', 'https://images.pexels.com'],
         'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         'font-src': ["'self'", 'https://fonts.gstatic.com'],
       },

@@ -62,6 +62,16 @@ function BulletList({ items, color }) {
   );
 }
 
+// Mirrors routes/leads.js's notHighPriorityMessage — !highPriority means either a confirmed
+// solid website, or an 'unverified' one whose status we simply don't know (likely bot-blocked
+// our check). Only the first case is actually "already has a solid website".
+function notHighPriorityMessage(lead) {
+  if (lead.websiteStatus === 'unverified') {
+    return "This business's website status couldn't be verified (likely blocked our check) — outreach is only for confirmed high-priority leads.";
+  }
+  return 'This lead already has a solid website — outreach is only for high-priority leads (poor or missing site).';
+}
+
 export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState(null);
@@ -365,7 +375,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                     </div>
                     <div className="flex items-center gap-3">
                       <a
-                        href={`/demo/${lead._id}`}
+                        href={lead.demoPreviewUrl || `/demo/${lead._id}`}
                         target="_blank"
                         rel="noreferrer"
                         className="flex-1 flex items-center justify-center h-8 px-3.5 rounded text-[12.5px] font-medium transition-all duration-150 hover:brightness-110"
@@ -425,7 +435,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                   <div className="space-y-2.5">
                     {!lead.highPriority && (
                       <p className="text-[12px] rounded-md p-2.5" style={{ color: 'var(--color-danger)', background: 'var(--color-surface-2)' }}>
-                        This lead already has a solid website — drafted before outreach was restricted to high-priority leads. Sending is blocked.
+                        {notHighPriorityMessage(lead)} Drafted before this restriction applied — sending is blocked.
                       </p>
                     )}
                     <input
@@ -479,7 +489,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                   <div className="rounded-md border border-dashed p-4 flex flex-col items-center gap-2.5 text-center" style={{ borderColor: 'var(--color-border-strong)' }}>
                     <p className="text-[12.5px] text-text-3">
                       {analysisStatus === 'completed' && demoStatus === 'completed' && !lead.highPriority
-                        ? 'This lead already has a solid website — outreach is only for high-priority leads (poor or missing site).'
+                        ? notHighPriorityMessage(lead)
                         : !outreachReady
                         ? 'Complete AI analysis and demo generation first.'
                         : outreachStatus === 'failed'
