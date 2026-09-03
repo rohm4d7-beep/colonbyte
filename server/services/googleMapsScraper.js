@@ -1,5 +1,11 @@
 import { chromium } from 'playwright';
 
+// A truncated UA (missing "(KHTML, like Gecko) Chrome/... Safari/537.36") previously used
+// here doesn't match any real browser and is an easy bot-detection tell — same full string
+// websiteAnalyzer.js/emailExtractor.js already use.
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+
 // Most businesses in any category already have a website, and routes/scrape.js now
 // discards those before saving (this tool only wants no-website/poor-website leads) — so
 // visiting only 20 raw listings would leave very few actual leads. Visit more candidates
@@ -216,7 +222,7 @@ export async function scrapeGoogleMaps(keyword, { onProgress, processItem, targe
   const results = [];
 
   try {
-    const searchPage = await browser.newPage({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' });
+    const searchPage = await browser.newPage({ userAgent: BROWSER_UA });
     const searchTerm = targetCountry ? `${keyword} ${targetCountry}` : keyword;
     const url = `https://www.google.com/maps/search/${encodeURIComponent(searchTerm)}`;
     await searchPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -241,7 +247,7 @@ export async function scrapeGoogleMaps(keyword, { onProgress, processItem, targe
     let processedCount = 0;
 
     async function worker() {
-      const page = await browser.newPage({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' });
+      const page = await browser.newPage({ userAgent: BROWSER_UA });
       try {
         while (true) {
           const i = nextIndex++;
