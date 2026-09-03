@@ -150,7 +150,9 @@ async function runJob(jobId, keyword, targetCountry) {
         }
       },
     });
-    broadcast(jobId, { ...(jobs.get(jobId)?.last || {}), ...counts, status: 'done' });
+    const finalProgress = { ...(jobs.get(jobId)?.last || {}), ...counts, status: 'done' };
+    console.log(`[scrape] job ${jobId} (${keyword} / ${targetCountry}) done:`, JSON.stringify(finalProgress));
+    broadcast(jobId, finalProgress);
   } catch (err) {
     console.error(`[scrape] job ${jobId} failed:`, err.message);
     broadcast(jobId, { found: 0, processed: 0, ...(jobs.get(jobId)?.last || {}), ...counts, status: 'error' });

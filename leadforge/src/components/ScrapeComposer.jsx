@@ -310,6 +310,7 @@ export default function ScrapeComposer({ onDone }) {
                 ) : (
                   <>
                     {statusLine} <span className="text-text">"{keyword}"</span>
+                    <span className="text-text-3"> · {saved} saved</span>
                     {hasWebsite > 0 && (
                       <span className="text-text-3"> · {hasWebsite} have a website</span>
                     )}
@@ -318,6 +319,9 @@ export default function ScrapeComposer({ onDone }) {
                     )}
                     {noEmail > 0 && (
                       <span className="text-text-3"> · {noEmail} no email</span>
+                    )}
+                    {duplicates > 0 && (
+                      <span className="text-text-3"> · {duplicates} merged</span>
                     )}
                     {rejected > 0 && (
                       <span className="text-text-3"> · {rejected} rejected</span>
