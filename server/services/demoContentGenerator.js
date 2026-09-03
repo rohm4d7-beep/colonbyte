@@ -1,5 +1,7 @@
 import { TEMPLATE_KEYS, ACCENT_COLORS } from '../constants/demoOptions.js';
 import { findStockPhoto } from './imageSearch.js';
+import { fetchListingPhotos } from './listingPhotoScraper.js';
+import { selectBestPhoto } from './photoSelector.js';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
@@ -11,13 +13,23 @@ const RESPONSE_SCHEMA = {
     properties: {
       templateKey: { type: 'string', enum: TEMPLATE_KEYS },
       accentColor: { type: 'string', enum: ACCENT_COLORS },
+      accentColorOptions: { type: 'array', items: { type: 'string', enum: ACCENT_COLORS }, minItems: 3, maxItems: 4 },
       tagline: { type: 'string' },
       aboutText: { type: 'string' },
       services: { type: 'array', items: { type: 'string' } },
       ctaText: { type: 'string' },
       imageQuery: { type: 'string' },
     },
-    required: ['templateKey', 'accentColor', 'tagline', 'aboutText', 'services', 'ctaText', 'imageQuery'],
+    required: [
+      'templateKey',
+      'accentColor',
+      'accentColorOptions',
+      'tagline',
+      'aboutText',
+      'services',
+      'ctaText',
+      'imageQuery',
+    ],
     additionalProperties: false,
   },
 };
@@ -33,7 +45,8 @@ const SYSTEM_PROMPT =
   '- cleanProfessional: clinics, medical, legal, finance, professional & B2B services, larger ' +
   'or chain hospitality (hotel chains, business hotels) — trust-forward, clean, understated\n' +
   '- boldModern: salons, fitness, beauty, creative studios, boutique/design-led hospitality, ' +
-  'retail & shops — bold, modern, energetic\n' +
+  'retail & shops (including supermarkets, grocery stores, and other food RETAILERS — as ' +
+  'opposed to places people eat, which are warmLocal) — bold, modern, energetic\n' +
   '- classicService: trades, home services, contractors, auto services — sturdy, reliable, ' +
   'no-nonsense\n' +
   'When a business could reasonably fit more than one template (this is common — e.g. a hotel ' +
@@ -41,8 +54,14 @@ const SYSTEM_PROMPT =
   'corporate/chain), decide using the specific facts given (rating, review count, name, hours) ' +
   'rather than defaulting to the same template every time you see that category — two different ' +
   'businesses in the same category should usually NOT get identical template+color pairs unless ' +
-  'their facts genuinely point the same way. Pick the accent color independently based on the ' +
-  'same vibe, not by rigidly pairing one color to one template.\n' +
+  'their facts genuinely point the same way.\n' +
+  'Also write `accentColorOptions`: 3-4 colors from the enum that would ALL look genuinely good ' +
+  'on this specific business\'s site — not one "correct" color plus filler, every option in the ' +
+  'list must actually fit the vibe you picked. `accentColor` must be one of them. This list gets ' +
+  'reused across future regenerates for this same lead to vary the color without ever landing on ' +
+  'one that clashes with the business, so it needs to hold up on its own without your reasoning ' +
+  'attached — pick colors independently based on the vibe, not by rigidly pairing one color to ' +
+  'one template.\n' +
   'Write a punchy tagline (under 10 words), a grounded 2-3 sentence about paragraph using ONLY ' +
   'the facts given (never invent awards, years in business, or specifics not provided), 3-6 ' +
   'services typical for the business\'s category, and a short actionable CTA (e.g. "Book Now", ' +
@@ -97,6 +116,11 @@ export async function generateDemoContent(lead) {
           { role: 'user', content: buildUserPrompt(lead) },
         ],
         response_format: { type: 'json_schema', json_schema: RESPONSE_SCHEMA },
+        // Deliberately left at default reasoning (unlike outreachGenerator.js/aiAnalysis.js) —
+        // no json_validate_failed was ever observed for this call, and this prompt's whole job
+        // is per-business creative variety (see the "should NOT get identical template+color
+        // pairs" instruction above); 'low' reasoning measurably narrowed that variety in testing
+        // without a proven reliability need to justify the tradeoff.
         temperature: 0.9,
       }),
       signal: AbortSignal.timeout(30000),
@@ -113,17 +137,75 @@ export async function generateDemoContent(lead) {
     if (!content) return { status: 'failed' };
 
     const parsed = JSON.parse(content);
-    const heroImage = await findStockPhoto(parsed.imageQuery);
+
+    // Once a template has been picked for a lead, "Regenerate" must not re-roll it — the whole
+    // point of regenerating (per explicit user feedback) is a fresh photo plus a light copy and
+    // color touch-up, NOT a different layout each click. Re-running the same prompt at
+    // temperature 0.9 legitimately produces different (each individually reasonable) template
+    // picks call to call, which reads as "stuck on random themes" from the outside. Only the
+    // very first generation for a lead gets to choose the template; every regenerate after that
+    // keeps it locked, even though the model still returns its own (ignored) guess.
+    const alreadyThemed = lead.demoSite?.status === 'completed';
+    const templateKey = alreadyThemed
+      ? lead.demoSite.templateKey
+      : (TEMPLATE_KEYS.includes(parsed.templateKey) ? parsed.templateKey : TEMPLATE_KEYS[0]);
+
+    // accentColor DOES shuffle every regenerate (including the first) — but only within a
+    // curated 3-4 color set the AI judged as fitting this specific business, picked once and
+    // reused, never from the full 8-color enum. That set is what stays business-appropriate;
+    // the individual color is what's meant to visibly change on each click.
+    const validParsedOptions = Array.isArray(parsed.accentColorOptions)
+      ? parsed.accentColorOptions.filter((c) => ACCENT_COLORS.includes(c))
+      : [];
+    const accentColorOptions =
+      alreadyThemed && lead.demoSite.accentColorOptions?.length > 0
+        ? lead.demoSite.accentColorOptions
+        : validParsedOptions.length >= 2
+        ? validParsedOptions
+        : [ACCENT_COLORS[0], ACCENT_COLORS[1], ACCENT_COLORS[2]];
+    const accentColor = accentColorOptions[Math.floor(Math.random() * accentColorOptions.length)];
+
+    // Prefer a real, good photo of the actual business over a generic stock one — a business
+    // owner wants to see their own place done justice, not a stranger's stock hotel lobby.
+    // Falls through to a curated Pexels match, then to the single scraped hero photo (see the
+    // demo templates), if the business has no usable real photos or the AI calls fail.
+    //
+    // routes/scrape.js now captures a real multi-photo gallery (up to 6) at scrape time for
+    // every lead that gets saved, stored in lead.photos — use that directly rather than paying
+    // for a live re-scrape on every single regenerate. Older leads scraped before that change
+    // may still only have the single old hero photo, so fetchListingPhotos is kept as a
+    // one-time live fallback for those, not the primary path anymore.
+    const allCandidatePhotos =
+      lead.photos?.length > 1 ? lead.photos : await fetchListingPhotos(lead.businessName, lead.country);
+
+    // The vision picker is consistent — given the same candidates it reliably re-picks the
+    // same "best" one, which is correct for quality but defeats "Regenerate" being the button
+    // a user clicks specifically to get a new header photo. So when there's more than one real
+    // candidate, drop whichever one is already showing before asking it to choose again.
+    //
+    // selectBestPhoto only ever evaluates the first MAX_IMAGES candidates it's given (a Groq
+    // token-budget limit, see photoSelector.js) — a listing can have several more real photos
+    // than that, so without shuffling, "drop the current one and take the front of the list"
+    // just oscillates between whichever 2 keep landing at the front after each exclusion, never
+    // reaching the rest. Shuffle first so repeated regenerates actually sample the whole pool
+    // over time instead of getting stuck cycling 2 of N (confirmed live on a real lead).
+    const currentHeroImage = lead.demoSite?.heroImage;
+    const remainingPhotos =
+      allCandidatePhotos.length > 1 ? allCandidatePhotos.filter((url) => url !== currentHeroImage) : allCandidatePhotos;
+    const candidatePhotos = [...remainingPhotos].sort(() => Math.random() - 0.5);
+
+    const heroImage =
+      (await selectBestPhoto(candidatePhotos, { businessName: lead.businessName, category: lead.category })) ||
+      (await findStockPhoto(parsed.imageQuery));
 
     return {
-      templateKey: TEMPLATE_KEYS.includes(parsed.templateKey) ? parsed.templateKey : TEMPLATE_KEYS[0],
-      accentColor: ACCENT_COLORS.includes(parsed.accentColor) ? parsed.accentColor : ACCENT_COLORS[0],
+      templateKey,
+      accentColor,
+      accentColorOptions,
       tagline: parsed.tagline || '',
       aboutText: parsed.aboutText || '',
       services: Array.isArray(parsed.services) ? parsed.services : [],
       ctaText: parsed.ctaText || 'Get In Touch',
-      // Falls back to the scraped Google Maps photo (see the demo templates) if no
-      // PEXELS_API_KEY is configured or no good match is found.
       heroImage,
       status: 'completed',
       generatedAt: new Date(),

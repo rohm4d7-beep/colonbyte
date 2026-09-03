@@ -57,30 +57,41 @@ function findEmails(html) {
   return extractFromText($);
 }
 
+async function findEmailOnSite(base) {
+  const html = await fetchPage(base);
+  const emails = findEmails(html);
+  if (emails.length > 0) return emails[0];
+
+  const $ = cheerio.load(html);
+  const contactHref = $('a')
+    .toArray()
+    .map(el => $(el).attr('href') || '')
+    .find(href => /contact/i.test(href));
+
+  if (contactHref) {
+    const contactUrl = new URL(contactHref, base).toString();
+    const contactHtml = await fetchPage(contactUrl);
+    const contactEmails = findEmails(contactHtml);
+    if (contactEmails.length > 0) return contactEmails[0];
+  }
+
+  return '';
+}
+
 export async function extractEmailFromWebsite(website) {
   if (!website) return '';
 
   const base = website.startsWith('http') ? website : `https://${website}`;
 
-  try {
-    const html = await fetchPage(base);
-    const emails = findEmails(html);
-    if (emails.length > 0) return emails[0];
-
-    const $ = cheerio.load(html);
-    const contactHref = $('a')
-      .toArray()
-      .map(el => $(el).attr('href') || '')
-      .find(href => /contact/i.test(href));
-
-    if (contactHref) {
-      const contactUrl = new URL(contactHref, base).toString();
-      const contactHtml = await fetchPage(contactUrl);
-      const contactEmails = findEmails(contactHtml);
-      if (contactEmails.length > 0) return contactEmails[0];
+  // routes/scrape.js now drops a lead entirely when this comes back empty, so a transient
+  // network blip here (not just a genuinely email-less site) costs a real lead — same
+  // one-retry rationale as websiteAnalyzer.js's attemptFetch.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await findEmailOnSite(base);
+    } catch {
+      // try again once, then give up
     }
-  } catch {
-    return '';
   }
 
   return '';

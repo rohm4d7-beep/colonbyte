@@ -67,7 +67,10 @@ async function fetchViaBrowser(url, sharedBrowser) {
     const browser = sharedBrowser || (ownBrowser = await chromium.launch({ headless: true }));
     const page = await browser.newPage({ userAgent: BROWSER_UA });
     try {
-      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      // Bumped from 15s after a real hotel site (heavy jQuery template, ~88.99.149.149 host)
+      // was clocked taking ~15s to finish loading — right at the old timeout's edge, tipping
+      // over into a false 'broken' verdict under any extra latency from concurrent scrape load.
+      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
       if (!response) return { ok: false, blocked: false };
       if (response.status() < 400) return { ok: true, html: await page.content() };
       return { ok: false, blocked: true };
@@ -79,6 +82,21 @@ async function fetchViaBrowser(url, sharedBrowser) {
   } finally {
     if (ownBrowser) await ownBrowser.close();
   }
+}
+
+// A single connection-level failure (blocked: false — no HTTP response reached us at all) is
+// often just a transient blip (a DNS resolver hiccup, a momentarily overloaded shared
+// analysisBrowser under concurrent scrape load) rather than proof the site is actually down —
+// confirmed live: a real, working site (dentalagrovella.mt) failed both axios and browser
+// fetches once during a scrape run, then loaded fine on the very next attempt seconds later.
+// One retry catches that without meaningfully slowing down genuinely-dead sites, which fail
+// near-instantly (DNS NXDOMAIN) rather than timing out.
+async function attemptFetch(url, sharedBrowser) {
+  const first = await fetchViaAxios(url);
+  if (first.ok) return first;
+  const second = await fetchViaBrowser(url, sharedBrowser);
+  if (second.ok) return second;
+  return { ok: false, blocked: first.blocked || second.blocked };
 }
 
 /**
@@ -101,9 +119,10 @@ export async function analyzeWebsite(website, sharedBrowser) {
 
   const url = website.startsWith('http') ? website : `https://${website}`;
 
-  const first = await fetchViaAxios(url);
-  const second = first.ok ? null : await fetchViaBrowser(url, sharedBrowser);
-  const result = first.ok ? first : second;
+  let result = await attemptFetch(url, sharedBrowser);
+  if (!result.ok && !result.blocked) {
+    result = await attemptFetch(url, sharedBrowser);
+  }
 
   if (!result.ok) {
     // Actively blocked (site responded, just refused us) is not the same claim as "broken" —
@@ -111,7 +130,7 @@ export async function analyzeWebsite(website, sharedBrowser) {
     // Treat it as unverified and NOT highPriority: we have no evidence their site is bad, and
     // a business with enterprise-grade bot protection is unlikely to be this agency's target
     // customer anyway, so it shouldn't get pitched a replacement site on a false premise.
-    if (first.blocked || second?.blocked) {
+    if (result.blocked) {
       return { status: 'unverified', websiteQualityScore: 0, highPriority: false };
     }
     return { status: 'broken', websiteQualityScore: 0, highPriority: true };

@@ -33,8 +33,16 @@ const SYSTEM_PROMPT =
   'You are a website-agency analyst. You are given structured data about a local business ' +
   'scraped from Google Maps. Write a grounded, honest analysis using ONLY the data provided — ' +
   'never invent facts (specific revenue figures, competitor names, customer counts) that were not ' +
-  'given to you. Frame "estimatedLostCustomers" and "revenueOpportunityEstimate" as rough, hedged ' +
-  'estimates (e.g. "roughly 10-20 per month", "an estimated $500-$1,500/month"), not guarantees. ' +
+  'given to you.\n' +
+  'Frame "estimatedLostCustomers" (format: "X-Y per month") and "revenueOpportunityEstimate" ' +
+  '(format: "$X-Y/month") as rough, hedged ranges, not guarantees — but the actual numbers MUST be ' +
+  'calibrated to this specific business\'s facts, not a stock phrase reused across businesses. ' +
+  'reviewCount is your strongest signal of scale: a business with thousands of reviews has vastly ' +
+  'more foot traffic (and more to lose from a weak web presence) than one with a handful — its ' +
+  'estimates should be a full order of magnitude larger, not the same range. Category sets the ' +
+  'price point (a hotel booking vs. a dental appointment vs. a plumber\'s call-out are worth very ' +
+  'different amounts) — factor that into the dollar range. Two businesses with different ' +
+  'rating/reviewCount/category should essentially never land on identical numbers.\n' +
   'leadQualityScore and websiteOpportunityScore are integers from 0 to 100.';
 
 function buildUserPrompt(lead) {
@@ -87,6 +95,12 @@ export async function analyzeLead(lead) {
         ],
         response_format: { type: 'json_schema', json_schema: RESPONSE_SCHEMA },
         temperature: 0.4,
+        // See outreachGenerator.js's identical setting — gpt-oss-20b's default reasoning can
+        // burn most of its completion-token budget before emitting the JSON, causing
+        // intermittent 'Failed to validate JSON' failures. 'low' fixes that and also cuts
+        // token usage well under half, easing pressure on the shared 8000 TPM budget this
+        // model shares with the other two Groq calls in the pipeline.
+        reasoning_effort: 'low',
       }),
       signal: AbortSignal.timeout(30000),
     });

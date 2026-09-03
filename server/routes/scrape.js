@@ -8,8 +8,7 @@ import { extractEmailFromWebsite } from '../services/emailExtractor.js';
 import { verifyCountry, resolveCountryCode } from '../services/countryVerification.js';
 import { findDuplicateLead, normalizePhone, normalizeWebsiteDomain } from '../services/leadDedup.js';
 import { analyzeWebsite } from '../services/websiteAnalyzer.js';
-import { analyzeLead } from '../services/aiAnalysis.js';
-import { generateDemoContent } from '../services/demoContentGenerator.js';
+import { fetchListingPhotos } from '../services/listingPhotoScraper.js';
 
 const router = Router();
 
@@ -28,7 +27,7 @@ function broadcast(jobId, payload) {
 }
 
 async function runJob(jobId, keyword, targetCountry) {
-  const counts = { rejected: 0, duplicates: 0, saved: 0, hasWebsite: 0, unverified: 0 };
+  const counts = { rejected: 0, duplicates: 0, saved: 0, hasWebsite: 0, unverified: 0, noEmail: 0 };
 
   // Shared across every item in this job — analyzeWebsite() only needs it as a fallback for
   // axios-blocked sites, but launching a fresh Chromium process per item (on top of the Maps
@@ -86,6 +85,22 @@ async function runJob(jobId, keyword, targetCountry) {
           }),
         ]);
 
+        // No email means no way to run outreach on this lead at all — not worth saving.
+        // (Leads with no website can never reach this with an email, since
+        // extractEmailFromWebsite has no website to scrape; they're dropped here too.)
+        if (!email) {
+          counts.noEmail += 1;
+          return;
+        }
+
+        // The bulk Maps visit above only ever grabs the single hero photo (opening the full
+        // gallery costs ~8-10s, too slow to pay for every one of up to ~150 candidates a job
+        // visits). By this point the lead has passed every filter and WILL be saved, so it's
+        // worth paying that cost once here for a real multi-photo pool — demo generation then
+        // has enough real photos to actually rotate through on regenerate instead of being
+        // limited to whatever the single scraped hero photo was.
+        const galleryPhotos = await fetchListingPhotos(item.businessName, verification.countryName);
+
         const fields = {
           businessName: item.businessName,
           email,
@@ -104,7 +119,7 @@ async function runJob(jobId, keyword, targetCountry) {
           category: item.category,
           openingHoursSummary: item.openingHoursSummary,
           photoCount: item.photoCount,
-          photos: item.photos,
+          photos: galleryPhotos.length > 0 ? galleryPhotos : item.photos,
           websiteStatus: websiteAnalysis.status,
           websiteQualityScore: websiteAnalysis.websiteQualityScore,
           highPriority: websiteAnalysis.highPriority,
@@ -115,19 +130,14 @@ async function runJob(jobId, keyword, targetCountry) {
         // (rather than '') keeps the sparse unique index from colliding on empty values.
         if (item.placeId) fields.placeId = item.placeId;
 
-        // Only confirmed high-priority leads get the automatic AI report + demo site (paid
-        // calls) — an 'unverified' lead reaching here has no confirmed opportunity yet, so it
-        // stays 'pending' and can be generated on demand via the leads routes once someone's
-        // checked the site by hand (routes/leads.js also blocks outreach on non-highPriority
-        // leads regardless).
-        if (websiteAnalysis.highPriority) {
-          const [aiAnalysis, demoSite] = await Promise.all([
-            analyzeLead(fields),
-            generateDemoContent(fields),
-          ]);
-          fields.aiAnalysis = aiAnalysis;
-          fields.demoSite = demoSite;
-        }
+        // AI report + demo site used to be generated automatically here for every
+        // high-priority lead found in a scrape job — but a broad scrape can turn up dozens of
+        // high-priority leads at once, and running both AI calls (now including the demo
+        // pipeline's vision photo-selection call) concurrently for all of them blows through
+        // Groq's per-minute token limits fast. These now stay 'pending' after scraping and are
+        // generated on demand, one lead at a time, via routes/leads.js's /analyze and
+        // /generate-demo (routes/leads.js also blocks outreach on non-highPriority leads
+        // regardless).
 
         if (duplicate) {
           counts.duplicates += 1;
