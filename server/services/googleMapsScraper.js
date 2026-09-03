@@ -217,7 +217,7 @@ async function visitListing(page, link) {
   };
 }
 
-export async function scrapeGoogleMaps(keyword, { onProgress, processItem, targetCountry } = {}) {
+export async function scrapeGoogleMaps(keyword, { onProgress, processItem, onItemError, targetCountry } = {}) {
   const browser = await chromium.launch({ headless: true });
   const results = [];
 
@@ -259,8 +259,15 @@ export async function scrapeGoogleMaps(keyword, { onProgress, processItem, targe
               if (processItem) await processItem(item);
               results.push(item);
             }
-          } catch {
-            // skip this listing, keep going
+          } catch (err) {
+            // Previously swallowed silently with no logging and no counts.* increment (every
+            // counter lives inside processItem, which is exactly what throws here) - a listing
+            // that failed partway through (e.g. a duplicate-key race between two concurrent
+            // workers on Lead.create, see routes/scrape.js) simply vanished from every count
+            // with no trace, making a job's final saved total look inexplicably low. Log it and
+            // let the caller count it instead of skipping silently.
+            console.error(`[googleMapsScraper] Failed processing ${uniqueLinks[i]}:`, err.message);
+            onItemError?.(err);
           }
 
           processedCount++;

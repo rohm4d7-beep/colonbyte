@@ -27,7 +27,7 @@ function broadcast(jobId, payload) {
 }
 
 async function runJob(jobId, keyword, targetCountry) {
-  const counts = { rejected: 0, duplicates: 0, saved: 0, hasWebsite: 0, unverified: 0, noEmail: 0 };
+  const counts = { rejected: 0, duplicates: 0, saved: 0, hasWebsite: 0, unverified: 0, noEmail: 0, errored: 0 };
 
   // Shared across every item in this job — analyzeWebsite() only needs it as a fallback for
   // axios-blocked sites, but launching a fresh Chromium process per item (on top of the Maps
@@ -39,6 +39,9 @@ async function runJob(jobId, keyword, targetCountry) {
     await scrapeGoogleMaps(keyword, {
       targetCountry,
       onProgress: (progress) => broadcast(jobId, { ...progress, ...counts }),
+      onItemError: () => {
+        counts.errored += 1;
+      },
       processItem: async (item) => {
         const verification = verifyCountry({
           address: item.address,
@@ -145,8 +148,29 @@ async function runJob(jobId, keyword, targetCountry) {
           counts.duplicates += 1;
           await Lead.updateOne({ _id: duplicate._id }, { $set: fields });
         } else {
-          counts.saved += 1;
-          await Lead.create({ ...fields, status: 'new' });
+          try {
+            counts.saved += 1;
+            await Lead.create({ ...fields, status: 'new' });
+          } catch (err) {
+            // findDuplicateLead ran before any worker had inserted this placeId, so two
+            // concurrent workers (see CONCURRENCY in googleMapsScraper.js) racing the same
+            // physical listing can both see "no duplicate" and both reach Lead.create - one
+            // wins, the other hits the placeId unique index and throws. Previously this
+            // propagated straight out of processItem into the caller's blanket `catch {}`,
+            // silently vanishing the item from every count. Recover by updating the winner's
+            // row instead of losing the item entirely.
+            if (err.code === 11000 && fields.placeId) {
+              const winner = await Lead.findOne({ placeId: fields.placeId });
+              if (winner) {
+                counts.saved -= 1;
+                counts.duplicates += 1;
+                await Lead.updateOne({ _id: winner._id }, { $set: fields });
+                return;
+              }
+            }
+            counts.saved -= 1;
+            throw err;
+          }
         }
       },
     });

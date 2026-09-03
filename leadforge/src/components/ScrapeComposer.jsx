@@ -237,6 +237,7 @@ export default function ScrapeComposer({ onDone }) {
   const hasWebsite = progress?.hasWebsite || 0;
   const unverified = progress?.unverified || 0;
   const noEmail = progress?.noEmail || 0;
+  const errored = progress?.errored || 0;
   const pct = found > 0 ? Math.min(Math.round((processed / found) * 100), 100) : jobId ? 6 : 0;
   const statusLine = found === 0 ? 'Searching Google Maps for' : 'Verifying & extracting for';
   const errorMessage = error || 'Something went wrong. Check the server logs.';
@@ -291,12 +292,17 @@ export default function ScrapeComposer({ onDone }) {
                 )}
                 {noEmail > 0 && (
                   <span className="text-text-2">
-                    {' '}· <span className="font-mono tnum">{noEmail}</span> skipped, no email found
+                    {' '}· <span className="font-mono tnum">{noEmail}</span> saved without an email
                   </span>
                 )}
                 {rejected > 0 && (
                   <span className="text-text-2">
                     {' '}· <span className="font-mono tnum">{rejected}</span> rejected (wrong country)
+                  </span>
+                )}
+                {errored > 0 && (
+                  <span style={{ color: 'var(--color-danger)' }}>
+                    {' '}· <span className="font-mono tnum">{errored}</span> failed (check server logs)
                   </span>
                 )}
               </p>
@@ -325,6 +331,9 @@ export default function ScrapeComposer({ onDone }) {
                     )}
                     {rejected > 0 && (
                       <span className="text-text-3"> · {rejected} rejected</span>
+                    )}
+                    {errored > 0 && (
+                      <span style={{ color: 'var(--color-danger)' }}> · {errored} failed</span>
                     )}
                   </>
                 )}
