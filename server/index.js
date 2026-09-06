@@ -5,10 +5,14 @@ import helmet from 'helmet';
 import mongoSanitize from 'express-mongo-sanitize';
 import { rateLimit } from 'express-rate-limit';
 import mongoose from 'mongoose';
+import session from 'express-session';
+import MongoStore from 'connect-mongo';
 import scrapeRoutes from './routes/scrape.js';
 import leadsRoutes from './routes/leads.js';
 import demoRoutes from './routes/demo.js';
 import webhookRoutes from './routes/webhooks.js';
+import authRoutes from './routes/auth.js';
+import { requireAuth } from './middleware/requireAuth.js';
 import Lead from './models/Lead.js';
 
 const PORT = process.env.PORT || 5000;
@@ -39,7 +43,28 @@ app.use(
     },
   })
 );
-app.use(cors({ origin: CLIENT_ORIGIN }));
+app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
+
+// The lead database, scrape triggers, and outreach-sending were reachable by anyone on the
+// internet with zero credentials (confirmed live against the deployed Render URL) - this is
+// what actually gates them. MongoStore persists sessions in the same Atlas cluster rather than
+// in-memory, so logins survive server restarts (this app restarts a lot in dev via
+// `node --watch`, and Render's free tier sleeps/wakes the process too - an in-memory store
+// would silently log the admin out every time either happens).
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    store: MongoStore.create({ mongoUrl: MONGODB_URI, collectionName: 'sessions' }),
+    cookie: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+    },
+  })
+);
 
 // Mounted before express.json() below: SendGrid's webhook signature is computed over the
 // raw request bytes, so this route needs the unparsed Buffer, not a parsed JSON object.
@@ -63,8 +88,11 @@ app.use(
   })
 );
 
-app.use('/api/scrape', scrapeRoutes);
-app.use('/api/leads', leadsRoutes);
+app.use('/api/auth', authRoutes);
+// /demo/:id deliberately stays unauthenticated below - those are public preview links sent to
+// prospects in outreach emails, who never log in.
+app.use('/api/scrape', requireAuth, scrapeRoutes);
+app.use('/api/leads', requireAuth, leadsRoutes);
 app.use('/demo', demoRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));

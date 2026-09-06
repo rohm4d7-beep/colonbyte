@@ -54,3 +54,45 @@ export async function sendOutreachEmail({ to, subject, body, leadId }) {
     return { success: false, error: err.message };
   }
 }
+
+/**
+ * Plain-purpose send (login OTP codes, etc.) - deliberately separate from sendOutreachEmail
+ * rather than reusing it with an empty leadId, since that function's custom_args exist
+ * specifically for matching SendGrid's Event Webhook back to a lead (routes/webhooks.js) and
+ * this traffic has nothing to do with lead outreach tracking.
+ */
+export async function sendEmail({ to, subject, body }) {
+  const apiKey = process.env.SENDGRID_API_KEY;
+  const from = process.env.SENDGRID_FROM_EMAIL;
+
+  if (!apiKey || !from || !to) {
+    return { success: false, error: 'Email sending is not configured.' };
+  }
+
+  try {
+    const res = await fetch(SENDGRID_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: to }] }],
+        from: { email: from },
+        subject,
+        content: [{ type: 'text/plain', value: body }],
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      console.error('[emailSender] SendGrid API error:', res.status, JSON.stringify(data).slice(0, 300));
+      return { success: false, error: data.errors?.[0]?.message || 'Failed to send email.' };
+    }
+    return { success: true };
+  } catch (err) {
+    console.error('[emailSender] Failed to send email:', err.message);
+    return { success: false, error: err.message };
+  }
+}
