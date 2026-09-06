@@ -122,6 +122,12 @@ export default function Leads() {
   };
 
   const handleDelete = async (id) => {
+    // The row button that triggers this only appears on hover at the row's far edge - a stray
+    // click while scanning the table used to permanently delete the lead with zero recourse.
+    // Confirmed live: two leads vanished this way with no trace in any pipeline log, since a
+    // successful DELETE leaves nothing to trace. Same confirm() the bulk "delete all" action
+    // already uses on Dashboard.jsx.
+    if (!window.confirm('Delete this lead? This cannot be undone.')) return;
     try {
       await fetch(`${API_BASE}/api/leads/${id}`, { method: 'DELETE' });
       fetchLeads();

@@ -1,6 +1,24 @@
 import { motion } from 'framer-motion';
 import WebsiteStatusBadge from './WebsiteStatusBadge';
 
+function InstagramIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+      <rect x="3" y="3" width="18" height="18" rx="5" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="17.2" cy="6.8" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function FacebookIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" {...props}>
+      <path d="M13.5 21v-7.6h2.55l.38-2.95h-2.93V8.56c0-.85.24-1.44 1.46-1.44h1.56V4.5c-.27-.04-1.2-.12-2.28-.12-2.25 0-3.79 1.37-3.79 3.89v2.17H8v2.95h2.45V21h3.05Z" />
+    </svg>
+  );
+}
+
 const STATUS_COLOR = {
   new: 'var(--color-text-2)',
   contacted: 'var(--color-accent)',
@@ -66,13 +84,39 @@ export default function LeadsTable({ leads, onStatusChange, onDelete, onSelectLe
                 )}
               </td>
               <td className="py-2.5 px-4">
-                {lead.email ? (
-                  <a href={`mailto:${lead.email}`} className="text-text-2 hover:text-accent transition-colors duration-150">
-                    {lead.email}
-                  </a>
-                ) : (
-                  <span className="text-text-3">—</span>
-                )}
+                <div className="flex items-center gap-2">
+                  {lead.email ? (
+                    <a href={`mailto:${lead.email}`} className="text-text-2 hover:text-accent transition-colors duration-150">
+                      {lead.email}
+                    </a>
+                  ) : (
+                    <span className="text-text-3">—</span>
+                  )}
+                  {lead.instagramUrl && (
+                    <a
+                      href={lead.instagramUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      title="Instagram"
+                      className="shrink-0 text-text-3 hover:text-accent transition-colors duration-150"
+                    >
+                      <InstagramIcon className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                  {lead.facebookUrl && (
+                    <a
+                      href={lead.facebookUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      title="Facebook"
+                      className="shrink-0 text-text-3 hover:text-accent transition-colors duration-150"
+                    >
+                      <FacebookIcon className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                </div>
               </td>
               <td className="py-2.5 px-4 font-mono text-[12.5px] text-text-2 tnum">{lead.phone || '—'}</td>
               <td className="py-2.5 px-4">
