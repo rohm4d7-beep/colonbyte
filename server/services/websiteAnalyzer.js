@@ -145,10 +145,20 @@ export async function analyzeWebsite(website, sharedBrowser) {
   // saw their real site at all. Same treatment as an explicitly blocked fetch: unverified, not
   // scored, not a claim their real site is good or bad.
   const pageSignature = `${$('title').text()} ${$('body').text().slice(0, 500)}`.toLowerCase();
+  // Imperva/Incapsula's challenge stub is a different shape entirely - no visible text at all,
+  // just a <script src="/_Incapsula_Resource?..."> in an empty body, so it never shows up in
+  // pageSignature (built from rendered text, and script src attributes aren't text content).
+  // Confirmed live: boutiquehomes.com.au (a genuinely well-built, modern site once actually
+  // rendered) came back as this exact 212-byte stub and scored 35/"outdated" - a false "needs a
+  // new site" pitch to a business with a site nicer than most of ours. Check the raw HTML for
+  // the vendor's own marker rather than rendered text.
+  const rawHtmlLower = result.html.toLowerCase();
   const looksLikeChallenge =
     /checking your browser|cf-browser-verification|just a moment\.\.\.|ddos protection by cloudflare|attention required.{0,20}cloudflare|please wait while we verify|verifying you are human|enable javascript and cookies to continue/.test(
       pageSignature
-    );
+    ) ||
+    rawHtmlLower.includes('_incapsula_resource') ||
+    rawHtmlLower.includes('incapsula incident id');
   if (looksLikeChallenge) {
     return { status: 'unverified', websiteQualityScore: 0, highPriority: false };
   }

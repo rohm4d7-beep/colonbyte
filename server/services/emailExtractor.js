@@ -1,5 +1,11 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { chromium } from 'playwright';
+
+// Same full string websiteAnalyzer.js/googleMapsScraper.js use — a self-identifying or
+// truncated bot UA gets flat-out 403'd by basic WAFs on plenty of working sites.
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
 // TLD is intentionally lowercase-only: real domains render lowercase, while text
 // concatenated onto the match with no separator (e.g. a "Call" button label glued
@@ -7,7 +13,12 @@ import * as cheerio from 'cheerio';
 // stops the greedy match at the real domain boundary instead of swallowing it.
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,24}/g;
 const IGNORED_EXTENSIONS = /\.(png|jpg|jpeg|gif|svg|webp|css|js)$/i;
-const JUNK_DOMAINS = /(sentry|wixpress|schema\.org|w3\.org|example\.(com|org|net)|domain\.com|yourdomain|godaddy|placeholder|test\.com|email\.com|localhost|\.(png|jpg|jpeg|gif|svg|webp|css|js))$/i;
+// `mystore.com` is Square Online's stock template address: it ships in the raw HTML of every
+// unconfigured Square site (confirmed live on american-barbershop-101767.square.site, whose
+// REAL address is a gmail one that only appears after JS renders). Without it here, the
+// placeholder gets saved as the business's email - worse than finding none,
+// since outreach would then go to a dead address that isn't theirs.
+const JUNK_DOMAINS = /(sentry|wixpress|schema\.org|w3\.org|example\.(com|org|net)|domain\.com|yourdomain|godaddy|placeholder|test\.com|email\.com|mystore\.com|localhost|\.(png|jpg|jpeg|gif|svg|webp|css|js))$/i;
 
 function looksReal(email) {
   const domain = email.split('@')[1] || '';
@@ -18,7 +29,11 @@ function extractFromMailto($) {
   // Re-run the href value through EMAIL_RE rather than trusting it verbatim — sites
   // sometimes ship malformed mailto hrefs with trailing garbage concatenated in
   // (e.g. href="mailto:info@site.aeRESERVATION").
-  const emails = $('a[href^="mailto:"]')
+  // `area` (not just `a`) - confirmed live on caledoniaplumbingandheating.co.uk, whose header
+  // is one banner graphic with an old-school HTML image map overlaying clickable hotspots on
+  // it; the mailto lives on an <area href="mailto:..."> hotspot, which an `a`-only selector
+  // silently never sees even though the link is genuinely there in the HTML.
+  const emails = $('a[href^="mailto:"], area[href^="mailto:"]')
     .toArray()
     .map(el => {
       const raw = ($(el).attr('href') || '').replace('mailto:', '').split('?')[0].trim();
@@ -29,6 +44,19 @@ function extractFromMailto($) {
 
 function extractFromText($) {
   $('script, style, noscript').remove();
+  // Cheerio's .text() concatenates raw text nodes with no separator, unlike a browser's
+  // rendered innerText - so two adjacent block elements with nothing but a CSS line break
+  // between their source text nodes run together into one token. Confirmed live: a "Email us"
+  // label immediately followed by an "info@site.com" value block (only a rendered line break
+  // between them, no literal whitespace character in the source) concatenated into
+  // "usinfo@site.com" - the regex then swallowed "us" from the label as part of the email's
+  // local part, corrupting a real, findable address into a wrong one. Force a space at every
+  // block-level boundary before extracting text so the regex sees the same word breaks a
+  // rendered page would.
+  $('br').replaceWith(' ');
+  $('div, p, li, tr, td, th, h1, h2, h3, h4, h5, h6, section, article, header, footer, button, label').each((_, el) => {
+    $(el).append(' ');
+  });
   const text = $('body').text();
   const matches = text.match(EMAIL_RE) || [];
   return [...new Set(matches)].filter(looksReal);
@@ -66,7 +94,7 @@ async function fetchPage(url) {
     timeout: 8000,
     maxRedirects: 3,
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+      'User-Agent': BROWSER_UA,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
     },
@@ -114,20 +142,77 @@ async function findContactInfoOnSite(base) {
   return { email, ...social };
 }
 
-export async function extractContactInfoFromWebsite(website) {
+// The axios path above only ever sees a site's raw HTML response. Site builders aimed at small
+// businesses (Square Online, Wix, Shopify, anything React-rendered) ship a near-empty shell and
+// paint the real contact block in with JS afterwards, so the business's actual email is simply
+// not in that HTML at any point — confirmed live on american-barbershop-101767.square.site,
+// whose real address (a gmail one) first appears ~4s into rendering, while the raw HTML carries
+// only Square's `hi@mystore.com` template placeholder. That class of site is extremely common
+// among exactly the businesses this tool targets, so every one of them was silently coming back
+// email-less. Rendering in a real browser is the only way to see those.
+//
+// Polls instead of waiting a flat delay so a site that paints its email early costs a fraction
+// of the budget, while one that never has an email still gives up in bounded time.
+// `sharedBrowser` — same rationale as websiteAnalyzer.js: a batch caller passes one browser for
+// the whole job rather than paying a fresh Chromium launch per lead.
+async function findEmailViaBrowser(base, sharedBrowser) {
+  let ownBrowser;
+  try {
+    const browser = sharedBrowser || (ownBrowser = await chromium.launch({ headless: true }));
+    const page = await browser.newPage({ userAgent: BROWSER_UA });
+    try {
+      await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 20000 });
+
+      for (let waited = 0; waited <= 8000; waited += 500) {
+        const html = await page.content();
+        const found = findEmails(html);
+        if (found.length > 0) {
+          const $ = cheerio.load(html);
+          return { email: found[0], ...extractSocialLinks($, base) };
+        }
+        await page.waitForTimeout(500);
+      }
+
+      // No email even fully rendered — still worth keeping whatever socials rendered in.
+      const $ = cheerio.load(await page.content());
+      return { email: '', ...extractSocialLinks($, base) };
+    } finally {
+      await page.close();
+    }
+  } catch {
+    return { email: '', instagramUrl: '', facebookUrl: '' };
+  } finally {
+    if (ownBrowser) await ownBrowser.close();
+  }
+}
+
+export async function extractContactInfoFromWebsite(website, sharedBrowser) {
   if (!website) return { email: '', instagramUrl: '', facebookUrl: '' };
 
   const base = website.startsWith('http') ? website : `https://${website}`;
 
   // A transient network blip here (not a genuinely email-less site) shouldn't cost a real
   // lead, so retry once before giving up entirely.
+  let result = { email: '', instagramUrl: '', facebookUrl: '' };
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      return await findContactInfoOnSite(base);
+      result = await findContactInfoOnSite(base);
+      break;
     } catch {
-      // try again once, then give up
+      // try again once, then fall through to the browser attempt below
     }
   }
 
-  return { email: '', instagramUrl: '', facebookUrl: '' };
+  // Only escalate to a real browser when the cheap path actually came up empty — most sites
+  // still hand over an email in their raw HTML and shouldn't pay for a page render.
+  if (!result.email) {
+    const rendered = await findEmailViaBrowser(base, sharedBrowser);
+    return {
+      email: rendered.email,
+      instagramUrl: result.instagramUrl || rendered.instagramUrl,
+      facebookUrl: result.facebookUrl || rendered.facebookUrl,
+    };
+  }
+
+  return result;
 }

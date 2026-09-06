@@ -23,7 +23,12 @@ const MAX_RESULTS = 288;
 // so a handful of tabs working the same queue in parallel gives a near-linear speedup with
 // little extra load. Kept modest since each worker's website-analysis fallback can itself
 // launch a browser page (see websiteAnalyzer.js's shared analysisBrowser).
-const CONCURRENCY = 4;
+// Lowered from 4 after this specific box (7.6GB RAM) got its scrape job killed by the host's
+// low-memory guard mid-run: two full Chromium stacks run per job (this scraper's browser +
+// websiteAnalyzer.js's shared analysisBrowser), so CONCURRENCY directly multiplies how many
+// renderer processes exist at once across both. 2 keeps peak memory survivable on this
+// machine at some throughput cost - bump back up on a bigger box.
+const CONCURRENCY = 2;
 
 // None of the per-listing locator calls below specify a timeout, so a listing simply missing
 // one of these fields (no rating shown, no category button, etc. — completely normal) was
@@ -33,6 +38,17 @@ const CONCURRENCY = 4;
 // settle wait below) by the time these run, so if an element isn't there within 2s it isn't
 // coming — fail fast instead of waiting out the default.
 const FIELD_TIMEOUT = 2000;
+
+// A listing visit failing after both attempts (see the retry comment below) is normally a
+// one-off — a genuinely dead/removed listing, or a single unlucky navigation race. But
+// confirmed live: once Google starts rate-limiting/blocking this connection's IP (a burst of
+// Maps requests tripping its abuse detection), EVERY subsequent listing visit fails the same
+// way (connection resets, timeouts, "interrupted by another navigation") regardless of retry —
+// retrying into an active block just burns the full remaining budget on 20s+20s timeouts per
+// item for nothing. A run of failures this long has no other realistic explanation, so stop
+// the whole job early once it happens instead of grinding through the rest of the queue only
+// to fail all of it too.
+const NETWORK_FAILURE_BREAKER_THRESHOLD = 10;
 
 // Google's own UI embeds icon-font glyphs as literal inline text nodes right before
 // labels like the address (e.g. a leading U+E0C8) — these are Private Use Area
@@ -280,11 +296,17 @@ export async function scrapeGoogleMaps(keyword, { onProgress, processItem, onIte
     // see CONCURRENCY above.
     let nextIndex = 0;
     let processedCount = 0;
+    // Shared across every worker — see NETWORK_FAILURE_BREAKER_THRESHOLD above. Approximate
+    // rather than strictly per-worker-serial (4 tabs interleave), but a run this long across
+    // the combined queue is just as damning either way.
+    let consecutiveFailures = 0;
+    let breakerTripped = false;
 
     async function worker() {
       const page = await browser.newPage({ userAgent: BROWSER_UA });
       try {
         while (true) {
+          if (breakerTripped) break;
           const i = nextIndex++;
           if (i >= uniqueLinks.length) break;
 
@@ -296,12 +318,22 @@ export async function scrapeGoogleMaps(keyword, { onProgress, processItem, onIte
           let item;
           try {
             item = await visitListing(page, uniqueLinks[i]);
+            consecutiveFailures = 0;
           } catch {
             try {
               item = await visitListing(page, uniqueLinks[i]);
+              consecutiveFailures = 0;
             } catch (err) {
               console.error(`[googleMapsScraper] Failed processing ${uniqueLinks[i]}:`, err.message);
               onItemError?.(err);
+              consecutiveFailures++;
+              if (consecutiveFailures >= NETWORK_FAILURE_BREAKER_THRESHOLD && !breakerTripped) {
+                breakerTripped = true;
+                console.error(
+                  `[googleMapsScraper] Stopping early after ${consecutiveFailures} straight navigation failures — Google Maps appears to be rate-limiting or blocking this connection, not a batch of coincidentally dead listings.`
+                );
+                onProgress?.({ found: uniqueLinks.length, processed: processedCount, status: 'running', blocked: true });
+              }
             }
           }
 

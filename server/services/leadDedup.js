@@ -4,11 +4,39 @@ export function normalizePhone(phone) {
   return (phone || '').replace(/[^\d+]/g, '');
 }
 
+// Platforms where the hostname alone identifies nothing - thousands of unrelated businesses
+// each have their own page under the same facebook.com/instagram.com host, so two different
+// businesses' profile URLs must not collapse to the same dedup key the way two listings of a
+// real business's own domain (e.g. joesplumbing.com.au) correctly do.
+const SHARED_HOST_PLATFORMS = new Set([
+  'facebook.com',
+  'fb.com',
+  'm.facebook.com',
+  'business.facebook.com',
+  'instagram.com',
+  'twitter.com',
+  'x.com',
+  'linkedin.com',
+  'linktr.ee',
+]);
+
 export function normalizeWebsiteDomain(website) {
   if (!website) return '';
   try {
     const url = new URL(website.startsWith('http') ? website : `https://${website}`);
-    return url.hostname.replace(/^www\./, '').toLowerCase();
+    const hostname = url.hostname.replace(/^www\./, '').toLowerCase();
+    if (SHARED_HOST_PLATFORMS.has(hostname)) {
+      // Confirmed live: routes/scrape.js was matching every business whose Maps "website" is a
+      // Facebook/Instagram profile as a "duplicate" of whichever unrelated business happened to
+      // get saved first with that same bare host (e.g. every Instagram-only barbershop in a scrape
+      // silently getting matched against one unrelated plumbing company's Facebook page) - the
+      // namesAreSimilar guard caught the mismatch and refused to overwrite, but that also meant
+      // the new, genuine lead was dropped entirely instead of being saved. Keying on host+path
+      // instead makes each business's own profile URL distinct again.
+      const path = url.pathname.replace(/\/+$/, '').toLowerCase();
+      return `${hostname}${path}`;
+    }
+    return hostname;
   } catch {
     return '';
   }
@@ -18,7 +46,7 @@ function normalizeName(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-function namesAreSimilar(a, b) {
+export function namesAreSimilar(a, b) {
   const na = normalizeName(a);
   const nb = normalizeName(b);
   if (!na || !nb) return false;

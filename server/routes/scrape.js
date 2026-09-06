@@ -7,7 +7,7 @@ import { scrapeGoogleMaps } from '../services/googleMapsScraper.js';
 import { extractContactInfoFromWebsite } from '../services/emailExtractor.js';
 import { verifyCountry, resolveCountryCode } from '../services/countryVerification.js';
 import { topCitiesForCountry } from '../services/topCities.js';
-import { findDuplicateLead, normalizePhone, normalizeWebsiteDomain } from '../services/leadDedup.js';
+import { findDuplicateLead, normalizePhone, normalizeWebsiteDomain, namesAreSimilar } from '../services/leadDedup.js';
 import { analyzeWebsite } from '../services/websiteAnalyzer.js';
 import { fetchListingPhotos } from '../services/listingPhotoScraper.js';
 
@@ -27,8 +27,12 @@ function broadcast(jobId, payload) {
   }
 }
 
-async function runJob(jobId, keyword, targetCountry) {
+async function runJob(jobId, keyword, targetCountry, requireContact) {
   const counts = { rejected: 0, duplicates: 0, saved: 0, hasWebsite: 0, unverified: 0, noEmail: 0, errored: 0 };
+  // Set once googleMapsScraper.js's circuit breaker trips (Google rate-limiting/blocking this
+  // connection, not a batch of coincidentally-dead listings) - surfaced to the dashboard so a
+  // wall of "failed" reads as an external block instead of looking like a broken scraper.
+  let blocked = false;
 
   // Shared across every item in this job — analyzeWebsite() only needs it as a fallback for
   // axios-blocked sites, but launching a fresh Chromium process per item (on top of the Maps
@@ -47,7 +51,10 @@ async function runJob(jobId, keyword, targetCountry) {
     await scrapeGoogleMaps(keyword, {
       targetCountry,
       searchCities,
-      onProgress: (progress) => broadcast(jobId, { ...progress, ...counts }),
+      onProgress: (progress) => {
+        if (progress.blocked) blocked = true;
+        broadcast(jobId, { ...progress, ...counts, blocked });
+      },
       onItemError: () => {
         counts.errored += 1;
       },
@@ -94,7 +101,7 @@ async function runJob(jobId, keyword, targetCountry) {
             ? Promise.resolve({ email: '', instagramUrl: item.website, facebookUrl: '' })
             : websiteAnalysis.status === 'facebook_only'
             ? Promise.resolve({ email: '', instagramUrl: '', facebookUrl: item.website })
-            : extractContactInfoFromWebsite(item.website);
+            : extractContactInfoFromWebsite(item.website, analysisBrowser);
 
         const [contactInfo, duplicate] = await Promise.all([
           contactInfoPromise,
@@ -118,6 +125,17 @@ async function runJob(jobId, keyword, targetCountry) {
         if (!email) {
           counts.noEmail += 1;
         }
+        // requireContact means "skip phone/WhatsApp-only leads" specifically - a website is
+        // just as usable a channel as email/Instagram/Facebook, but only when it's a CONFIRMED
+        // reachable site ('has_website' or 'outdated' - see websiteAnalyzer.js). 'unverified'
+        // (bot-blocked, we have no evidence either way) and 'broken' (confirmed dead) are NOT
+        // a usable channel and must not satisfy this - counting either would let through leads
+        // with a website field on file that a human can't actually do anything with, which is
+        // exactly what this flag exists to keep out. WhatsApp-only outreach is slow to send and
+        // the number frequently isn't even on WhatsApp, so a caller opting into this doesn't
+        // want the dashboard/DB cluttered with leads only reachable that way.
+        const hasUsableWebsite = websiteAnalysis.status === 'has_website' || websiteAnalysis.status === 'outdated';
+        if (requireContact && !email && !instagramUrl && !facebookUrl && !hasUsableWebsite) return;
 
         // The bulk Maps visit above only ever grabs the single hero photo (opening the full
         // gallery costs ~8-10s, too slow to pay for every one of up to ~150 candidates a job
@@ -168,6 +186,23 @@ async function runJob(jobId, keyword, targetCountry) {
         // regardless).
 
         if (duplicate) {
+          // findDuplicateLead matching on placeId/phone/website domain should only ever match
+          // the SAME real business - but this is exactly the guard that would have caught a
+          // real incident: leads a user had already manually contacted were later found
+          // completely missing (their businessName no longer matched anything in the DB),
+          // meaning a "duplicate" match at some point overwrote one business's identity with a
+          // different one's via $set. No exact root cause could be reconstructed after the
+          // fact (no audit history to inspect) - this closes the door on it regardless of which
+          // path (placeId/phone/website/lat-lng) produced the false match: refuse to overwrite
+          // a lead's identity unless the incoming business name is actually similar to what's
+          // already stored, and only ever fall silent-safe (skip) rather than risk clobbering a
+          // real, possibly already-contacted lead.
+          if (duplicate.businessName && !namesAreSimilar(duplicate.businessName, item.businessName)) {
+            console.warn(
+              `[scrape] Refusing to merge "${item.businessName}" into existing lead "${duplicate.businessName}" (id ${duplicate._id}) - matched as a duplicate but names don't look like the same business. Skipping update to avoid overwriting a real lead.`
+            );
+            return;
+          }
           counts.duplicates += 1;
           await Lead.updateOne({ _id: duplicate._id }, { $set: fields });
         } else {
@@ -197,7 +232,7 @@ async function runJob(jobId, keyword, targetCountry) {
         }
       },
     });
-    const finalProgress = { ...(jobs.get(jobId)?.last || {}), ...counts, status: 'done' };
+    const finalProgress = { ...(jobs.get(jobId)?.last || {}), ...counts, status: 'done', blocked };
     console.log(`[scrape] job ${jobId} (${keyword} / ${targetCountry}) done:`, JSON.stringify(finalProgress));
     broadcast(jobId, finalProgress);
   } catch (err) {
@@ -227,10 +262,12 @@ router.post('/start', startLimiter, (req, res) => {
     return res.status(400).json({ error: 'A valid target country is required.' });
   }
 
+  const requireContact = req.body?.requireContact === true;
+
   const jobId = randomUUID();
   jobs.set(jobId, { clients: new Set(), last: { found: 0, processed: 0, status: 'running' } });
 
-  runJob(jobId, keyword, country);
+  runJob(jobId, keyword, country, requireContact);
 
   res.json({ jobId });
 });

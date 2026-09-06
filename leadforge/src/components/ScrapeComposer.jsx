@@ -153,6 +153,7 @@ function CountryPicker({ value, onChange }) {
 export default function ScrapeComposer({ onDone }) {
   const [keyword, setKeyword] = useState('');
   const [country, setCountry] = useState('');
+  const [requireContact, setRequireContact] = useState(true);
   const [jobId, setJobId] = useState(null);
   const [progress, setProgress] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -182,7 +183,7 @@ export default function ScrapeComposer({ onDone }) {
       const res = await fetch(`${API_BASE}/api/scrape/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keyword: keyword.trim(), country }),
+        body: JSON.stringify({ keyword: keyword.trim(), country, requireContact }),
       });
 
       if (!res.ok) {
@@ -238,6 +239,7 @@ export default function ScrapeComposer({ onDone }) {
   const unverified = progress?.unverified || 0;
   const noEmail = progress?.noEmail || 0;
   const errored = progress?.errored || 0;
+  const blocked = progress?.blocked || false;
   const searchingTerm = progress?.searchingTerm || '';
   const pct = found > 0 ? Math.min(Math.round((processed / found) * 100), 100) : jobId ? 6 : 0;
   const statusLine = found === 0 ? 'Searching Google Maps for' : 'Verifying & extracting for';
@@ -303,7 +305,8 @@ export default function ScrapeComposer({ onDone }) {
                 )}
                 {errored > 0 && (
                   <span style={{ color: 'var(--color-danger)' }}>
-                    {' '}· <span className="font-mono tnum">{errored}</span> failed (check server logs)
+                    {' '}· <span className="font-mono tnum">{errored}</span> failed
+                    {blocked ? ' — Google Maps blocked this connection, stopped early' : ' (check server logs)'}
                   </span>
                 )}
               </p>
@@ -335,7 +338,9 @@ export default function ScrapeComposer({ onDone }) {
                       <span className="text-text-3"> · {rejected} rejected</span>
                     )}
                     {errored > 0 && (
-                      <span style={{ color: 'var(--color-danger)' }}> · {errored} failed</span>
+                      <span style={{ color: 'var(--color-danger)' }}>
+                        {' '}· {errored} failed{blocked ? ' — Google Maps is blocking this connection' : ''}
+                      </span>
                     )}
                   </>
                 )}
@@ -358,6 +363,16 @@ export default function ScrapeComposer({ onDone }) {
                 placeholder="Business category — try “dentists” or “boutique hotels” (pick the country on the right)"
                 className="flex-1 min-w-0 bg-transparent text-[13.5px] text-text placeholder:text-text-3 outline-none"
               />
+              <div className="w-px h-4 shrink-0" style={{ background: 'var(--color-border)' }} />
+              <label className="flex items-center gap-1.5 shrink-0 text-[12.5px] text-text-2 cursor-pointer select-none" title="Skip phone/WhatsApp-only leads — keeps anything with an email, Instagram, Facebook, or a website">
+                <input
+                  type="checkbox"
+                  checked={requireContact}
+                  onChange={e => setRequireContact(e.target.checked)}
+                  className="w-3.5 h-3.5"
+                />
+                Email/IG/FB only
+              </label>
               <div className="w-px h-4 shrink-0" style={{ background: 'var(--color-border)' }} />
               <CountryPicker value={country} onChange={setCountry} />
               <button
