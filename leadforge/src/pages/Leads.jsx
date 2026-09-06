@@ -171,7 +171,7 @@ export default function Leads() {
       className="mx-auto max-w-[1120px] px-6 py-8"
     >
       <div
-        className="flex items-center justify-between gap-3 rounded-full px-6 py-3 mb-4"
+        className="flex items-center justify-between gap-3 rounded-full px-14 py-3 mb-4"
         style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
       >
         <div>
