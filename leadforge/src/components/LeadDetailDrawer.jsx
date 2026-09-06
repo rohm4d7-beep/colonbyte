@@ -76,7 +76,10 @@ function notHighPriorityMessage() {
 export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState(null);
+  const [rechecking, setRechecking] = useState(false);
+  const [recheckError, setRecheckError] = useState(null);
   const [generatingDemo, setGeneratingDemo] = useState(false);
+  const [changingTemplate, setChangingTemplate] = useState(false);
   const [demoError, setDemoError] = useState(null);
   const [generatingOutreach, setGeneratingOutreach] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -96,6 +99,10 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const [generatingFollowUpWhatsapp, setGeneratingFollowUpWhatsapp] = useState(false);
   const [followUpWhatsappError, setFollowUpWhatsappError] = useState(null);
   const [followUpWhatsappMessage, setFollowUpWhatsappMessage] = useState('');
+
+  useEffect(() => {
+    setRecheckError(null);
+  }, [lead?._id]);
 
   useEffect(() => {
     setSubject(lead?.outreach?.subject || '');
@@ -138,6 +145,25 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     }
   };
 
+  const handleRecheckWebsite = async () => {
+    if (!lead) return;
+    setRechecking(true);
+    setRecheckError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/recheck-website`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Recheck failed.');
+      }
+      const updated = await res.json();
+      onUpdated?.(updated);
+    } catch (err) {
+      setRecheckError(err.message || 'Recheck failed.');
+    } finally {
+      setRechecking(false);
+    }
+  };
+
   const handleGenerateDemo = async () => {
     if (!lead) return;
     setGeneratingDemo(true);
@@ -154,6 +180,25 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
       setDemoError(err.message || 'Demo generation failed.');
     } finally {
       setGeneratingDemo(false);
+    }
+  };
+
+  const handleChangeTemplate = async () => {
+    if (!lead) return;
+    setChangingTemplate(true);
+    setDemoError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/change-template`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Template change failed.');
+      }
+      const updated = await res.json();
+      onUpdated?.(updated);
+    } catch (err) {
+      setDemoError(err.message || 'Template change failed.');
+    } finally {
+      setChangingTemplate(false);
     }
   };
 
@@ -529,6 +574,19 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                     </a>
                   )}
                 </div>
+                {lead.website && (
+                  <div className="mt-2.5">
+                    <button
+                      onClick={handleRecheckWebsite}
+                      disabled={rechecking}
+                      className="flex items-center gap-1.5 text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                    >
+                      {rechecking && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
+                      {rechecking ? 'Rechecking…' : 'Recheck Website'}
+                    </button>
+                    {recheckError && <p className="text-[12px] mt-1.5" style={{ color: 'var(--color-danger)' }}>{recheckError}</p>}
+                  </div>
+                )}
               </Section>
 
               <Section label="AI Business Report">
@@ -612,10 +670,18 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                       </a>
                       <button
                         onClick={handleGenerateDemo}
-                        disabled={generatingDemo}
+                        disabled={generatingDemo || changingTemplate}
                         className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
                       >
                         {generatingDemo ? 'Regenerating…' : 'Regenerate'}
+                      </button>
+                      <button
+                        onClick={handleChangeTemplate}
+                        disabled={generatingDemo || changingTemplate}
+                        title="Keeps the current color, photo, and copy — only swaps the layout"
+                        className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                      >
+                        {changingTemplate ? 'Switching…' : 'Change Template'}
                       </button>
                     </div>
                   </div>

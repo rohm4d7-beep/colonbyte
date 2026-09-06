@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { TEMPLATE_KEYS, ACCENT_COLORS } from '../constants/demoOptions.js';
+import { TEMPLATE_KEYS } from '../constants/demoOptions.js';
 
 export const WEBSITE_STATUSES = [
   'none',
@@ -31,12 +31,18 @@ const aiAnalysisSchema = new mongoose.Schema(
 const demoSiteSchema = new mongoose.Schema(
   {
     templateKey: { type: String, enum: TEMPLATE_KEYS },
-    accentColor: { type: String, enum: ACCENT_COLORS },
-    // A curated set of 3+ colors (from ACCENT_COLORS) the AI judged as fitting this specific
-    // business's vibe, picked once on first generation. accentColor is shuffled from this set
-    // on every generate (including the first) — gives real per-regenerate variety while never
-    // drifting into a color that doesn't suit the business, unlike picking freely from all of
-    // ACCENT_COLORS each time.
+    // No enum here (unlike templateKey) - services/brandColorExtractor.js sets this to a color
+    // pulled directly from the business's own real photos when one's available (contrast-
+    // adjusted, but not snapped to a fixed palette), so it can legitimately be any hex, not
+    // just one of ACCENT_COLORS. The AI fallback path (demoContentGenerator.js, used when a
+    // lead has no usable photos) still only ever picks from ACCENT_COLORS itself.
+    accentColor: { type: String },
+    // A curated set of 3+ colors the AI judged as fitting this specific business's vibe (from
+    // ACCENT_COLORS), or the business's own extracted color prepended in front of that set —
+    // picked once on first generation. accentColor is shuffled from this set on every generate
+    // (including the first) — gives real per-regenerate variety while never drifting into a
+    // color that doesn't suit the business, unlike picking freely from all of ACCENT_COLORS
+    // each time.
     accentColorOptions: { type: [String], default: [] },
     tagline: { type: String, default: '' },
     aboutText: { type: String, default: '' },

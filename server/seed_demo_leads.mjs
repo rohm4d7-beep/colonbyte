@@ -144,7 +144,7 @@ const leads = [
       analyzedAt: new Date(),
     },
     demoSite: {
-      templateKey: 'cleanProfessional',
+      templateKey: 'refinedEditorial',
       accentColor: '#0d9488',
       tagline: 'Gentle care, modern dentistry.',
       aboutText: 'A family dental practice trusted by Denver for over a decade.',

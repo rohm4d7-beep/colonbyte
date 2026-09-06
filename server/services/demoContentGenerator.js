@@ -2,6 +2,7 @@ import { TEMPLATE_KEYS, ACCENT_COLORS } from '../constants/demoOptions.js';
 import { findStockPhoto } from './imageSearch.js';
 import { fetchListingPhotos } from './listingPhotoScraper.js';
 import { selectBestPhoto } from './photoSelector.js';
+import { extractBrandColor, brandColorToHex } from './brandColorExtractor.js';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
@@ -42,15 +43,19 @@ const SYSTEM_PROMPT =
   'by keyword-matching the category name:\n' +
   '- warmLocal: food & drink, hospitality, travel & leisure (restaurants, cafes, bars, hotels, ' +
   'B&Bs, guesthouses, tour operators) — warm, welcoming, appetite/comfort-forward\n' +
-  '- cleanProfessional: clinics, medical, legal, finance, professional & B2B services, larger ' +
-  'or chain hospitality (hotel chains, business hotels) — trust-forward, clean, understated\n' +
+  '- refinedEditorial: clinics, medical, legal, finance, professional & B2B services, larger ' +
+  'or chain hospitality (hotel chains, business hotels) — editorial, warm-neutral, considered; ' +
+  'trust-forward without reading corporate\n' +
   '- boldModern: salons, fitness, beauty, creative studios, boutique/design-led hospitality, ' +
   'retail & shops (including supermarkets, grocery stores, and other food RETAILERS — as ' +
   'opposed to places people eat, which are warmLocal) — bold, modern, energetic\n' +
   '- classicService: trades, home services, contractors, auto services — sturdy, reliable, ' +
   'no-nonsense\n' +
+  '- boutiqueHeritage: real estate agencies, home builders, property developers, architecture ' +
+  '& interior design, boutique/luxury retail (furniture, homewares, high-end fashion) — same ' +
+  'warm-editorial family as refinedEditorial, more brochure/portfolio-led\n' +
   'When a business could reasonably fit more than one template (this is common — e.g. a hotel ' +
-  'could be warmLocal or cleanProfessional depending on whether it reads boutique/cozy or ' +
+  'could be warmLocal or refinedEditorial depending on whether it reads boutique/cozy or ' +
   'corporate/chain), decide using the specific facts given (rating, review count, name, hours) ' +
   'rather than defaulting to the same template every time you see that category — two different ' +
   'businesses in the same category should usually NOT get identical template+color pairs unless ' +
@@ -157,13 +162,35 @@ export async function generateDemoContent(lead) {
     const validParsedOptions = Array.isArray(parsed.accentColorOptions)
       ? parsed.accentColorOptions.filter((c) => ACCENT_COLORS.includes(c))
       : [];
-    const accentColorOptions =
+    let accentColorOptions =
       alreadyThemed && lead.demoSite.accentColorOptions?.length > 0
         ? lead.demoSite.accentColorOptions
         : validParsedOptions.length >= 2
         ? validParsedOptions
         : [ACCENT_COLORS[0], ACCENT_COLORS[1], ACCENT_COLORS[2]];
-    const accentColor = accentColorOptions[Math.floor(Math.random() * accentColorOptions.length)];
+
+    // First generation only (the curated set is locked after that, same as templateKey) - snap
+    // a color pulled from the business's own real listing photos into the option set, so the
+    // demo can actually land on something that looks like theirs instead of only ever choosing
+    // from whatever the AI guessed fit the category in general. Uses lead.photos directly (not
+    // the AI-selected/stock heroImage below), so this reflects the business itself even when
+    // the eventual hero ends up being a stock fallback.
+    let brandAccentColor = null;
+    if (!alreadyThemed && lead.photos?.length > 0) {
+      const dominant = await extractBrandColor(lead.photos);
+      if (dominant) {
+        // Used verbatim - whatever the business's actual color is (black, gold, pastel,
+        // anything), not snapped to the curated ACCENT_COLORS list. Legibility against it is
+        // handled at render time by each template's readableTextColor(accentColor) call, not
+        // by altering the color itself here.
+        brandAccentColor = brandColorToHex(dominant);
+        if (!accentColorOptions.includes(brandAccentColor)) {
+          accentColorOptions = [brandAccentColor, ...accentColorOptions];
+        }
+      }
+    }
+
+    const accentColor = brandAccentColor || accentColorOptions[Math.floor(Math.random() * accentColorOptions.length)];
 
     // Prefer a real, good photo of the actual business over a generic stock one — a business
     // owner wants to see their own place done justice, not a stranger's stock hotel lobby.

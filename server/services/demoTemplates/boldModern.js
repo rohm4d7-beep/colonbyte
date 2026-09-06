@@ -1,4 +1,4 @@
-import { escapeHtml, renderReviewCallout, renderContactFooter, htmlDocument } from './shared.js';
+import { escapeHtml, renderReviewCallout, renderGallery, renderMapEmbed, renderContactFooter, readableTextColor, htmlDocument } from './shared.js';
 
 // For salons, fitness, beauty, creative studios, boutique hospitality, retail (see
 // demoContentGenerator.js's category mapping) - this category's real competitors are
@@ -8,6 +8,7 @@ import { escapeHtml, renderReviewCallout, renderContactFooter, htmlDocument } fr
 // black hero with a small padded photo box as a downgrade, not a pitch.
 export function renderTemplate(lead, demoSite) {
   const { accentColor, tagline, aboutText, services, ctaText } = demoSite;
+  const ctaTextColor = readableTextColor(accentColor);
   const photo = demoSite.heroImage || lead.photos?.[0] || '';
   const initial = (lead.businessName || '?').trim().charAt(0).toUpperCase();
 
@@ -30,6 +31,9 @@ export function renderTemplate(lead, demoSite) {
           .join('')}
       </div>`;
 
+  const gallery = renderGallery(lead, photo, accentColor);
+  const mapEmbed = renderMapEmbed(lead);
+
   const content = `
     <style>
       @media (max-width: 760px) {
@@ -45,7 +49,7 @@ export function renderTemplate(lead, demoSite) {
         <h1 style="font-family:'Fraunces',serif;font-size:clamp(34px,4.4vw,56px);font-weight:500;line-height:1.05;letter-spacing:-0.01em;margin-bottom:22px;text-wrap:balance;">${escapeHtml(lead.businessName)}</h1>
         <p style="font:400 18px/1.55 'Inter',system-ui,sans-serif;color:#c8c5c2;max-width:38ch;margin-bottom:34px;">${escapeHtml(tagline)}</p>
         <div>
-          <a href="tel:${escapeHtml(lead.phone || '')}" style="display:inline-block;background:${accentColor};color:#17161a;font:600 15px 'Inter',system-ui,sans-serif;padding:15px 30px;border-radius:2px;text-decoration:none;">${escapeHtml(ctaText)}</a>
+          <a href="tel:${escapeHtml(lead.phone || '')}" style="display:inline-block;background:${accentColor};color:${ctaTextColor};font:600 15px 'Inter',system-ui,sans-serif;padding:15px 30px;border-radius:2px;text-decoration:none;">${escapeHtml(ctaText)}</a>
         </div>
       </div>
     </section>
@@ -64,11 +68,27 @@ export function renderTemplate(lead, demoSite) {
       </div>
     </section>
 
-    <footer style="padding:48px 56px;background:#0f0e11;color:#c8c5c2;border-top:1px solid #26242b;">
-      <div style="max-width:900px;margin:0 auto;">
-        <h3 style="font-family:'Fraunces',serif;font-size:19px;color:#f2f0ec;margin-bottom:20px;">${escapeHtml(lead.businessName)}</h3>
-        ${renderContactFooter(lead)}
+    ${gallery ? `
+    <section style="background:#f7f5f2;padding:88px 56px;">
+      <div style="max-width:1040px;margin:0 auto;">
+        <h2 style="font-family:'Fraunces',serif;font-size:28px;font-weight:500;color:#242226;margin-bottom:36px;">Inside ${escapeHtml(lead.businessName)}</h2>
+        ${gallery}
       </div>
+    </section>` : ''}
+
+    <section style="background:#17161a;padding:88px 56px;color:#c8c5c2;">
+      <div class="demo-2col" style="max-width:1040px;margin:0 auto;display:grid;grid-template-columns:${mapEmbed ? '1fr 1fr' : '1fr'};gap:48px;align-items:center;">
+        <div>
+          <h2 style="font-family:'Fraunces',serif;font-size:28px;font-weight:500;color:#f2f0ec;margin-bottom:24px;">Visit Us</h2>
+          ${renderContactFooter(lead)}
+          <a href="tel:${escapeHtml(lead.phone || '')}" style="display:inline-block;margin-top:32px;background:${accentColor};color:${ctaTextColor};font:600 15px 'Inter',system-ui,sans-serif;padding:15px 30px;border-radius:2px;text-decoration:none;">${escapeHtml(ctaText)}</a>
+        </div>
+        ${mapEmbed ? `<div style="border-radius:4px;overflow:hidden;">${mapEmbed}</div>` : ''}
+      </div>
+    </section>
+
+    <footer style="padding:32px 56px;background:#0f0e11;color:#c8c5c2;text-align:center;border-top:1px solid #26242b;">
+      <span style="font-family:'Fraunces',serif;font-size:15px;color:#f2f0ec;">${escapeHtml(lead.businessName)}</span>
     </footer>
   `;
 

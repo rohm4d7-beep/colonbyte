@@ -2,12 +2,14 @@ import { Router } from 'express';
 import { Parser as CsvParser } from 'json2csv';
 import { rateLimit } from 'express-rate-limit';
 import Lead, { WEBSITE_STATUSES } from '../models/Lead.js';
+import { TEMPLATE_KEYS } from '../constants/demoOptions.js';
 import { analyzeLead } from '../services/aiAnalysis.js';
 import { generateDemoContent } from '../services/demoContentGenerator.js';
 import { generateOutreach, generateFollowUpEmail } from '../services/outreachGenerator.js';
 import { generateWhatsappOutreach, generateFollowUpWhatsapp } from '../services/whatsappOutreachGenerator.js';
 import { sendOutreachEmail } from '../services/emailSender.js';
 import { analyzeWebsite } from '../services/websiteAnalyzer.js';
+import { extractContactInfoFromWebsite } from '../services/emailExtractor.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
 const router = Router();
@@ -150,6 +152,41 @@ router.post('/:id/analyze', analyzeLimiter, asyncHandler(async (req, res) => {
   res.json(lead);
 }));
 
+// Re-runs the same website check + contact extraction routes/scrape.js does on first scrape,
+// against a lead already saved in the database. Exists because analyzeWebsite/emailExtractor
+// keep getting bug fixes (e.g. the Cloudflare-challenge-page misclassification) that only ever
+// apply to leads scraped AFTER the fix - this is the only way to bring an older lead's stored
+// websiteStatus/email/social links up to date with the current logic, on demand, one lead at a
+// time. Contact fields are only overwritten when a fresh value is actually found - a transient
+// fetch failure on recheck must never wipe out a good value the lead already had.
+router.post('/:id/recheck-website', analyzeLimiter, asyncHandler(async (req, res) => {
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (!lead.website) return res.status(400).json({ error: 'This lead has no website to recheck.' });
+
+  const websiteAnalysis = await analyzeWebsite(lead.website);
+  lead.websiteStatus = websiteAnalysis.status;
+  lead.websiteQualityScore = websiteAnalysis.websiteQualityScore;
+  lead.highPriority = websiteAnalysis.highPriority;
+
+  // Mirrors routes/scrape.js: when the Maps "website" link is itself a social profile, that
+  // URL already IS the Instagram/Facebook link - fetching it for contact info would find nothing.
+  const contactInfo =
+    websiteAnalysis.status === 'instagram_only'
+      ? { email: '', instagramUrl: lead.website, facebookUrl: '' }
+      : websiteAnalysis.status === 'facebook_only'
+      ? { email: '', instagramUrl: '', facebookUrl: lead.website }
+      : await extractContactInfoFromWebsite(lead.website);
+
+  if (contactInfo.email) lead.email = contactInfo.email;
+  if (contactInfo.instagramUrl) lead.instagramUrl = contactInfo.instagramUrl;
+  if (contactInfo.facebookUrl) lead.facebookUrl = contactInfo.facebookUrl;
+
+  await lead.save();
+
+  res.json(lead);
+}));
+
 router.post('/:id/generate-demo', analyzeLimiter, asyncHandler(async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
@@ -157,6 +194,28 @@ router.post('/:id/generate-demo', analyzeLimiter, asyncHandler(async (req, res) 
   await ensureWebsiteAnalyzed(lead);
   const demoSite = await generateDemoContent(lead);
   lead.demoSite = demoSite;
+  await lead.save();
+
+  res.json(lead);
+}));
+
+// Deliberately separate from generate-demo/"Regenerate" - that endpoint locks templateKey
+// after the first generation on purpose (per explicit past feedback: re-rolling the layout on
+// every regenerate click read as "stuck on random themes"). This is the intentional-choice
+// counterpart: cycles to the next template in TEMPLATE_KEYS, keeping the existing color/photo/
+// copy untouched, so a user can deliberately try a different layout without also re-rolling
+// everything else.
+router.post('/:id/change-template', analyzeLimiter, asyncHandler(async (req, res) => {
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (lead.demoSite?.status !== 'completed') {
+    return res.status(409).json({ error: 'Generate a demo before changing its template.' });
+  }
+
+  const currentIndex = TEMPLATE_KEYS.indexOf(lead.demoSite.templateKey);
+  const nextTemplateKey = TEMPLATE_KEYS[(currentIndex + 1) % TEMPLATE_KEYS.length];
+
+  lead.demoSite.templateKey = nextTemplateKey;
   await lead.save();
 
   res.json(lead);
