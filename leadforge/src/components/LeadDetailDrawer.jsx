@@ -3,6 +3,14 @@ import { AnimatePresence, motion } from 'framer-motion';
 import WebsiteStatusBadge from './WebsiteStatusBadge';
 import API_BASE from '../config';
 
+const TEMPLATE_NAMES = {
+  warmLocal: 'Warm & Local',
+  refinedEditorial: 'Refined Editorial',
+  boldModern: 'Bold Modern',
+  classicService: 'Classic Service',
+  boutiqueHeritage: 'Boutique Heritage',
+};
+
 function CloseIcon(props) {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" {...props}>
@@ -80,6 +88,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const [recheckError, setRecheckError] = useState(null);
   const [generatingDemo, setGeneratingDemo] = useState(false);
   const [changingTemplate, setChangingTemplate] = useState(false);
+  const [templateChangeNotice, setTemplateChangeNotice] = useState(null);
   const [demoError, setDemoError] = useState(null);
   const [generatingOutreach, setGeneratingOutreach] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -187,6 +196,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     if (!lead) return;
     setChangingTemplate(true);
     setDemoError(null);
+    setTemplateChangeNotice(null);
     try {
       const res = await fetch(`${API_BASE}/api/leads/${lead._id}/change-template`, { method: 'POST' });
       if (!res.ok) {
@@ -195,6 +205,12 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
       }
       const updated = await res.json();
       onUpdated?.(updated);
+      // The drawer only shows a text summary, not a live preview - without this, clicking the
+      // button gave zero visible feedback (the change only shows up if you reopen Preview Demo),
+      // which reads as "the button doesn't do anything" even though it worked.
+      const name = TEMPLATE_NAMES[updated.demoSite?.templateKey] || updated.demoSite?.templateKey;
+      setTemplateChangeNotice(`Switched to "${name}" — reopen Preview Demo to see it.`);
+      setTimeout(() => setTemplateChangeNotice(null), 6000);
     } catch (err) {
       setDemoError(err.message || 'Template change failed.');
     } finally {
@@ -684,6 +700,12 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                         {changingTemplate ? 'Switching…' : 'Change Template'}
                       </button>
                     </div>
+                    {templateChangeNotice && (
+                      <p className="text-[12px]" style={{ color: 'var(--color-success, var(--color-accent))' }}>
+                        {templateChangeNotice}
+                      </p>
+                    )}
+                    {demoError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{demoError}</p>}
                   </div>
                 ) : (
                   <div className="rounded-md border border-dashed p-4 flex flex-col items-center gap-2.5 text-center" style={{ borderColor: 'var(--color-border-strong)' }}>
