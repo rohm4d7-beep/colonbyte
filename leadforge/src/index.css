@@ -3,38 +3,12 @@
 @tailwind utilities;
 
 @layer base {
-  :root[data-theme="dark"] {
-    --color-bg: #09090b;
-    --color-surface: #111114;
-    --color-surface-2: #1a1a1f;
-    --color-border: rgba(255, 255, 255, 0.08);
-    --color-border-strong: rgba(255, 255, 255, 0.16);
-
-    --color-accent: #4f6bff;
-    --color-accent-hover: #6b84ff;
-    --color-accent-soft: rgba(79, 107, 255, 0.14);
-
-    --color-accent-2: #a78bfa;
-    --color-accent-2-soft: rgba(167, 139, 250, 0.14);
-    --color-on-accent-2: #14101f;
-
-    --color-accent-3: #b0d94a;
-    --color-accent-3-soft: rgba(176, 217, 74, 0.14);
-    --color-on-accent-3: #13160a;
-
-    --color-success: #2fbe85;
-    --color-success-soft: rgba(47, 190, 133, 0.14);
-
-    --color-danger: #f0576b;
-    --color-danger-soft: rgba(240, 87, 107, 0.14);
-
-    --color-text: #f4f4f5;
-    --color-text-2: #9a9aa5;
-    --color-text-3: #5c5c66;
-  }
-
-  :root[data-theme="light"] {
-    --color-bg: #fafafa;
+  /* One committed theme, permanently - no toggle, no data-theme attribute. A previous
+     light/dark toggle made it impossible to ever land on an exact, deliberate look (colors
+     were always a compromise between two palettes); this is the actual final palette,
+     matching the reference design exactly rather than approximating it in two directions. */
+  :root {
+    --color-bg: #eef0ef;
     --color-surface: #ffffff;
     --color-surface-2: #f2f2f4;
     --color-border: rgba(0, 0, 0, 0.08);
@@ -58,7 +32,10 @@
     --color-danger: #d93a4f;
     --color-danger-soft: rgba(217, 58, 79, 0.1);
 
-    --color-text: #18181b;
+    /* True pure black, not an approximate near-black - used deliberately for the reference's
+       solid black blocks (buttons, logo mark, hero cards), never softened toward gray. */
+    --color-black: #000000;
+    --color-text: #0a0a0a;
     --color-text-2: #6b6b76;
     --color-text-3: #a3a3ad;
   }
@@ -120,5 +97,35 @@
 @layer utilities {
   .tnum {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Soft blurred-cloud backdrop, fixed behind all page content, matching the reference. */
+  .cloud-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .cloud-backdrop span {
+    position: absolute;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.015) 60%, transparent 75%);
+    filter: blur(2px);
+  }
+
+  /* The reference frame's perforated-ticket edge - a ring of small round dots tracing a
+     rounded container's border, inset slightly from the true edge. */
+  .dotted-frame {
+    position: relative;
+  }
+  .dotted-frame::before {
+    content: '';
+    position: absolute;
+    inset: 10px;
+    border-radius: inherit;
+    border: 2px dotted var(--color-border-strong);
+    opacity: 0.6;
+    pointer-events: none;
   }
 }

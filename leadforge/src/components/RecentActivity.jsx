@@ -3,12 +3,12 @@ import StatusBadge from './StatusBadge';
 export default function RecentActivity({ leads }) {
   return (
     <div
-      className="rounded-md border h-full flex flex-col"
-      style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+      className="rounded-[28px] h-full flex flex-col overflow-hidden"
+      style={{ background: '#dfe1e0' }}
     >
       <div className="px-4 pt-4 pb-3 flex items-center justify-between shrink-0">
-        <span className="text-[11px] font-medium uppercase tracking-wider text-text-3">Recent Activity</span>
-        {leads.length > 0 && <span className="font-mono text-[11px] text-text-3 tnum">{leads.length}</span>}
+        <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--color-black)' }}>Recent Activity</span>
+        {leads.length > 0 && <span className="font-mono text-[11px] font-bold tnum" style={{ color: 'var(--color-black)' }}>{leads.length}</span>}
       </div>
 
       {leads.length === 0 ? (

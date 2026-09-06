@@ -34,37 +34,43 @@ export default function PipelineOverview({ stats }) {
   const coverage = total > 0 ? Math.round((emails / total) * 100) : 0;
 
   const segments = [
-    { key: 'new', label: 'New', value: newCount, color: 'var(--color-text-3)' },
-    { key: 'contacted', label: 'Contacted', value: contacted, color: 'var(--color-accent)' },
+    { key: 'new', label: 'New', value: newCount, color: 'rgba(255,255,255,0.25)' },
+    { key: 'contacted', label: 'Contacted', value: contacted, color: 'var(--color-accent-3)' },
     { key: 'converted', label: 'Converted', value: converted, color: 'var(--color-success)' },
   ];
 
   return (
     <div
-      className="rounded-md border p-6 h-full"
-      style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+      className="rounded-[28px] p-7 h-full"
+      style={{ background: 'var(--color-black)', color: '#ffffff' }}
     >
       <div className="flex items-start gap-12 mb-8">
         <div>
-          <div className="text-[11px] font-medium uppercase tracking-wider text-text-3 mb-2">Total Leads</div>
-          <div className="font-mono text-[36px] leading-none font-semibold text-text tnum">
+          <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgba(255,255,255,0.55)' }}>
+            Total Leads
+          </div>
+          <div className="text-[52px] leading-[0.95] font-bold tracking-tight tnum">
             <CountUp value={total} />
           </div>
         </div>
         <div>
-          <div className="text-[11px] font-medium uppercase tracking-wider text-text-3 mb-2">Emails Found</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgba(255,255,255,0.55)' }}>
+            Emails Found
+          </div>
           <div className="flex items-baseline gap-2">
-            <div className="font-mono text-[36px] leading-none font-semibold text-text tnum">
+            <div className="text-[52px] leading-[0.95] font-bold tracking-tight tnum">
               <CountUp value={emails} />
             </div>
-            {total > 0 && <span className="text-[12.5px] font-medium text-text-2">{coverage}% coverage</span>}
+            {total > 0 && <span className="text-[12.5px] font-medium" style={{ color: 'rgba(255,255,255,0.55)' }}>{coverage}% coverage</span>}
           </div>
         </div>
       </div>
 
       <div>
-        <div className="text-[11px] font-medium uppercase tracking-wider text-text-3 mb-3">Pipeline</div>
-        <div className="flex h-2 rounded-full overflow-hidden" style={{ background: 'var(--color-surface-2)' }}>
+        <div className="text-[11px] font-semibold uppercase tracking-wider mb-3" style={{ color: 'rgba(255,255,255,0.55)' }}>
+          Pipeline
+        </div>
+        <div className="flex h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.12)' }}>
           {segments.map(s =>
             s.value > 0 ? (
               <motion.div
@@ -81,8 +87,8 @@ export default function PipelineOverview({ stats }) {
           {segments.map(s => (
             <div key={s.key} className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: s.color }} />
-              <span className="text-[12.5px] text-text-2">{s.label}</span>
-              <span className="text-[12.5px] font-mono font-medium text-text tnum">{s.value}</span>
+              <span className="text-[12.5px]" style={{ color: 'rgba(255,255,255,0.7)' }}>{s.label}</span>
+              <span className="text-[12.5px] font-mono font-medium tnum">{s.value}</span>
             </div>
           ))}
         </div>

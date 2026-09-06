@@ -95,7 +95,7 @@ router.get('/export', asyncHandler(async (req, res) => {
 }));
 
 router.get('/', asyncHandler(async (req, res) => {
-  const { country, status, websiteStatus, minRating, search, page = 1, limit = 20 } = req.query;
+  const { country, status, websiteStatus, highPriority, minRating, search, page = 1, limit = 20 } = req.query;
 
   const filter = {};
   if (typeof country === 'string' && country) filter.country = country;
@@ -104,6 +104,12 @@ router.get('/', asyncHandler(async (req, res) => {
   }
   if (typeof websiteStatus === 'string' && WEBSITE_STATUSES.includes(websiteStatus)) {
     filter.websiteStatus = websiteStatus;
+  }
+  // Backs the Dashboard's "High Priority Leads" stat card link - same field the stat itself
+  // counts (Lead.countDocuments({ highPriority: true })), so the number and the filtered list
+  // it links to can never drift apart.
+  if (highPriority === 'true') {
+    filter.highPriority = true;
   }
   if (typeof minRating === 'string' && minRating) {
     const parsed = parseFloat(minRating);

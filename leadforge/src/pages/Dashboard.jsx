@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import ScrapeComposer from '../components/ScrapeComposer';
 import PipelineOverview from '../components/PipelineOverview';
@@ -9,6 +10,14 @@ function TrashIcon(props) {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d="M2.5 4.5h11M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M12.5 4.5 12 13a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 13l-.5-8.5" />
+    </svg>
+  );
+}
+
+function ArrowIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M4 12 12 4M5.5 4H12v6.5" />
     </svg>
   );
 }
@@ -62,11 +71,11 @@ export default function Dashboard() {
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.18, ease: 'easeOut' }}
-      className="mx-auto max-w-[1120px] px-6 py-8"
+      className="mx-auto max-w-[1120px] px-7 py-8"
     >
       <div className="flex items-end justify-between mb-6">
         <div>
-          <h1 className="text-[20px] font-semibold tracking-tight text-text">Dashboard</h1>
+          <h1 className="text-[22px] font-semibold tracking-tight text-text">Dashboard</h1>
           <p className="text-text-2 text-[13px] mt-1">Overview of your lead generation</p>
         </div>
         <button
@@ -84,14 +93,24 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
-        <div className="rounded-md p-5" style={{ background: 'var(--color-accent-2)', color: 'var(--color-on-accent-2)' }}>
-          <div className="text-[11px] font-medium uppercase tracking-wider opacity-70 mb-2">Website Missing</div>
-          <div className="font-mono text-[32px] leading-none font-semibold tnum">{stats.websiteMissing}</div>
-        </div>
-        <div className="rounded-md p-5" style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}>
-          <div className="text-[11px] font-medium uppercase tracking-wider opacity-70 mb-2">High Priority Leads</div>
-          <div className="font-mono text-[32px] leading-none font-semibold tnum">{stats.highPriority}</div>
-        </div>
+        <Link
+          to="/leads?websiteStatus=none"
+          className="relative rounded-[28px] p-6 overflow-hidden block transition-transform duration-150 hover:scale-[0.99]"
+          style={{ background: 'var(--color-accent-2)', color: 'var(--color-black)' }}
+        >
+          <ArrowIcon className="absolute top-6 right-6 w-4 h-4 opacity-60" />
+          <div className="text-[11px] font-semibold uppercase tracking-wider opacity-70 mb-3">Website Missing</div>
+          <div className="text-[64px] leading-[0.9] font-bold tracking-tight tnum">{stats.websiteMissing}</div>
+        </Link>
+        <Link
+          to="/leads?highPriority=true"
+          className="relative rounded-[28px] p-6 overflow-hidden block transition-transform duration-150 hover:scale-[0.99]"
+          style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
+        >
+          <ArrowIcon className="absolute top-6 right-6 w-4 h-4 opacity-60" />
+          <div className="text-[11px] font-semibold uppercase tracking-wider opacity-70 mb-3">High Priority Leads</div>
+          <div className="text-[64px] leading-[0.9] font-bold tracking-tight tnum">{stats.highPriority}</div>
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-[1fr_320px] gap-5 items-stretch">

@@ -247,7 +247,7 @@ export default function ScrapeComposer({ onDone }) {
 
   return (
     <div
-      className="relative rounded-md border overflow-hidden transition-colors duration-200"
+      className="relative rounded-full border overflow-hidden transition-colors duration-200"
       style={{
         background: 'var(--color-surface)',
         borderColor: isError ? 'var(--color-danger)' : 'var(--color-border-strong)',
@@ -378,7 +378,7 @@ export default function ScrapeComposer({ onDone }) {
               <button
                 onClick={handleStart}
                 disabled={!canStart}
-                className="shrink-0 h-8 px-3.5 rounded text-[13px] font-medium transition-all duration-150 hover:brightness-110 active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
+                className="shrink-0 h-8 px-4 rounded-full text-[13px] font-medium transition-all duration-150 hover:brightness-110 active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
                 style={{ background: 'var(--color-accent)', color: '#ffffff' }}
               >
                 Start Scraping
