@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import LeadsTable from '../components/LeadsTable';
 import LeadDetailDrawer from '../components/LeadDetailDrawer';
 import { WEBSITE_STATUS_META } from '../components/WebsiteStatusBadge';
-import API_BASE from '../config';
+import API_BASE, { apiFetch } from '../config';
 
 const MIN_RATING_OPTIONS = [
   { value: '', label: 'Any Rating' },
@@ -103,7 +103,7 @@ export default function Leads() {
     params.set('limit', 20);
 
     try {
-      const res = await fetch(`${API_BASE}/api/leads?${params}`);
+      const res = await apiFetch(`${API_BASE}/api/leads?${params}`);
       const data = await res.json();
       setLeads(data.leads || []);
       setTotal(data.total);
@@ -118,7 +118,7 @@ export default function Leads() {
   }, [fetchLeads]);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/leads/countries`)
+    apiFetch(`${API_BASE}/api/leads/countries`)
       .then(res => res.json())
       .then(data => setCountries(data.countries || []))
       .catch(() => {});
@@ -126,7 +126,7 @@ export default function Leads() {
 
   const handleStatusChange = async (id, newStatus) => {
     try {
-      await fetch(`${API_BASE}/api/leads/${id}/status`, {
+      await apiFetch(`${API_BASE}/api/leads/${id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -145,7 +145,7 @@ export default function Leads() {
     // already uses on Dashboard.jsx.
     if (!window.confirm('Delete this lead? This cannot be undone.')) return;
     try {
-      await fetch(`${API_BASE}/api/leads/${id}`, { method: 'DELETE' });
+      await apiFetch(`${API_BASE}/api/leads/${id}`, { method: 'DELETE' });
       fetchLeads();
     } catch {
       // ignore

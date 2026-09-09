@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import API_BASE from '../config';
+import API_BASE, { apiFetch } from '../config';
 
 function EyeIcon(props) {
   return (
@@ -47,7 +47,7 @@ export default function Login({ onLoggedIn }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/auth/login`, {
+      const res = await apiFetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -67,7 +67,7 @@ export default function Login({ onLoggedIn }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/auth/verify-otp`, {
+      const res = await apiFetch(`${API_BASE}/api/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code }),

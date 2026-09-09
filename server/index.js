@@ -17,7 +17,12 @@ import Lead from './models/Lead.js';
 
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/leadforge';
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:3002';
+// Comma-separated so the deployed Vercel dashboard and local dev can both be allowed at once,
+// e.g. CLIENT_ORIGIN="https://leadforge.vercel.app,http://localhost:3002".
+const CLIENT_ORIGINS = (process.env.CLIENT_ORIGIN || 'http://localhost:3002')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
 
 const app = express();
 app.disable('x-powered-by');
@@ -43,7 +48,16 @@ app.use(
     },
   })
 );
-app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
+app.use(
+  cors({
+    origin(origin, callback) {
+      // No Origin header (curl, server-to-server, same-origin) - allow.
+      if (!origin || CLIENT_ORIGINS.includes(origin)) return callback(null, true);
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
+    credentials: true,
+  })
+);
 
 // The lead database, scrape triggers, and outreach-sending were reachable by anyone on the
 // internet with zero credentials (confirmed live against the deployed Render URL) - this is
@@ -59,8 +73,12 @@ app.use(
     store: MongoStore.create({ mongoUrl: MONGODB_URI, collectionName: 'sessions' }),
     cookie: {
       httpOnly: true,
+      // The Vercel-hosted dashboard and the Render backend are different origins, so the
+      // cookie needs SameSite=None (which itself requires Secure) to be sent at all - 'lax'
+      // silently drops it on cross-origin requests. Local dev stays on 'lax' since it's
+      // same-origin through Vite's proxy, and 'none' without HTTPS wouldn't work there anyway.
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 30 * 24 * 60 * 60 * 1000,
     },
   })
@@ -104,6 +122,7 @@ app.use((req, res) => {
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   if (err.name === 'CastError' || err.name === 'ValidationError') {
+    console.error(`[server] ${err.name} on ${req.method} ${req.originalUrl}:`, err.message);
     return res.status(400).json({ error: 'Invalid request.' });
   }
   console.error('[server] Unhandled error:', err);

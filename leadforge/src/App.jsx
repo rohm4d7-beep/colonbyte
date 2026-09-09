@@ -5,7 +5,7 @@ import CloudBackdrop from './components/CloudBackdrop';
 import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
 import Login from './pages/Login';
-import API_BASE from './config';
+import API_BASE, { apiFetch } from './config';
 
 export default function App() {
   // null = still checking, false = not logged in, string = logged-in email. The whole app
@@ -14,7 +14,7 @@ export default function App() {
   const [authEmail, setAuthEmail] = useState(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/auth/me`)
+    apiFetch(`${API_BASE}/api/auth/me`)
       .then((res) => res.json())
       .then((data) => setAuthEmail(data.authenticated ? data.email : false))
       .catch(() => setAuthEmail(false));

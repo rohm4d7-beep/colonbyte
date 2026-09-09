@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import ScrapeComposer from '../components/ScrapeComposer';
 import PipelineOverview from '../components/PipelineOverview';
 import RecentActivity from '../components/RecentActivity';
-import API_BASE from '../config';
+import API_BASE, { apiFetch } from '../config';
 
 function TrashIcon(props) {
   return (
@@ -37,8 +37,8 @@ export default function Dashboard() {
   const fetchStats = async () => {
     try {
       const [statsRes, leadsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/leads/stats`),
-        fetch(`${API_BASE}/api/leads?limit=10`),
+        apiFetch(`${API_BASE}/api/leads/stats`),
+        apiFetch(`${API_BASE}/api/leads?limit=10`),
       ]);
       const statsData = await statsRes.json();
       const leadsData = await leadsRes.json();
@@ -57,7 +57,7 @@ export default function Dashboard() {
     if (!window.confirm('Delete all leads? This cannot be undone.')) return;
     setResetting(true);
     try {
-      await fetch(`${API_BASE}/api/leads`, { method: 'DELETE' });
+      await apiFetch(`${API_BASE}/api/leads`, { method: 'DELETE' });
       await fetchStats();
     } catch {
       // ignore

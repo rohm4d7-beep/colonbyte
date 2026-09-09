@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import API_BASE from '../config';
+import API_BASE, { apiFetch } from '../config';
 
 const navItems = [
   { to: '/', label: 'Dashboard' },
@@ -8,7 +8,7 @@ const navItems = [
 
 export default function TopBar({ userEmail, onLoggedOut }) {
   const handleLogout = async () => {
-    await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST' }).catch(() => {});
+    await apiFetch(`${API_BASE}/api/auth/logout`, { method: 'POST' }).catch(() => {});
     onLoggedOut?.();
   };
 
