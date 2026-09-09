@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+:root {
+  --background: #faf9f5;
+  --foreground: #1c2b1f;
+
+  /* Francis Plumbing brand palette, sampled from their live site */
+  --francis-green-dark: #16261c;
+  --francis-green: #1e3a2b;
+  --francis-gold: #c9a227;
+  --francis-gold-light: #e6c766;
+  --francis-cream: #faf7ee;
+  --francis-red: #9c2b2b;
+  --francis-red-bright: #b6524f;
+  --francis-call-green: #2f7d3a;
+  --francis-blue: #1f3a7a;
+  --francis-text-muted: #5b6b5e;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-francis-green-dark: var(--francis-green-dark);
+  --color-francis-green: var(--francis-green);
+  --color-francis-gold: var(--francis-gold);
+  --color-francis-gold-light: var(--francis-gold-light);
+  --color-francis-cream: var(--francis-cream);
+  --color-francis-red: var(--francis-red);
+  --color-francis-red-bright: var(--francis-red-bright);
+  --color-francis-call-green: var(--francis-call-green);
+  --color-francis-blue: var(--francis-blue);
+  --color-francis-text-muted: var(--francis-text-muted);
+  --font-heading: var(--font-poppins);
+  --font-sans: var(--font-inter);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+@keyframes francis-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.francis-fade-up {
+  animation: francis-fade-up 0.18s ease-out;
+}
