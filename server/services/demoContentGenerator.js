@@ -3,8 +3,7 @@ import { findStockPhoto } from './imageSearch.js';
 import { fetchListingPhotos } from './listingPhotoScraper.js';
 import { selectBestPhoto } from './photoSelector.js';
 import { extractBrandColor, brandColorToHex } from './brandColorExtractor.js';
-
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+import { groqFetch } from './groqClient.js';
 
 const RESPONSE_SCHEMA = {
   name: 'demo_site_content',
@@ -102,34 +101,22 @@ function buildUserPrompt(lead) {
  * combination.
  */
 export async function generateDemoContent(lead) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    return { status: 'failed' };
-  }
-
   try {
-    const res = await fetch(GROQ_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: buildUserPrompt(lead) },
-        ],
-        response_format: { type: 'json_schema', json_schema: RESPONSE_SCHEMA },
-        // Deliberately left at default reasoning (unlike outreachGenerator.js/aiAnalysis.js) —
-        // no json_validate_failed was ever observed for this call, and this prompt's whole job
-        // is per-business creative variety (see the "should NOT get identical template+color
-        // pairs" instruction above); 'low' reasoning measurably narrowed that variety in testing
-        // without a proven reliability need to justify the tradeoff.
-        temperature: 0.9,
-      }),
-      signal: AbortSignal.timeout(30000),
+    const res = await groqFetch({
+      model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: buildUserPrompt(lead) },
+      ],
+      response_format: { type: 'json_schema', json_schema: RESPONSE_SCHEMA },
+      // Deliberately left at default reasoning (unlike outreachGenerator.js/aiAnalysis.js) —
+      // no json_validate_failed was ever observed for this call, and this prompt's whole job
+      // is per-business creative variety (see the "should NOT get identical template+color
+      // pairs" instruction above); 'low' reasoning measurably narrowed that variety in testing
+      // without a proven reliability need to justify the tradeoff.
+      temperature: 0.9,
     });
+    if (!res) return { status: 'failed' };
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');

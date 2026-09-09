@@ -1,4 +1,4 @@
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+import { groqFetch } from './groqClient.js';
 
 const RESPONSE_SCHEMA = {
   name: 'outreach_email',
@@ -15,76 +15,128 @@ const RESPONSE_SCHEMA = {
 };
 
 const SYSTEM_PROMPT =
-  'You are a small website agency\'s founder, personally emailing a local business owner for the first ' +
-  'time. Write like an actual person typed this in two minutes on their laptop — not like an AI, not like ' +
-  'a marketing template. Ground every claim ONLY in the facts given — never invent customer counts, ' +
-  'revenue figures, or competitor names.\n\n' +
-  'CRITICAL — what the demo actually is: a static visual preview/mockup only. It shows the business\'s ' +
-  'name, tagline, an about paragraph, a services list, contact info (address/phone/hours), and photos, ' +
-  'plus a button that is a plain click-to-call link. That is ALL it does. It has NO booking system, NO ' +
-  'forms, NO payment processing, NO live/backend functionality of any kind, and nothing on it is measured ' +
-  'or benchmarked. NEVER claim or imply it does any of the following, even loosely: online booking or ' +
-  'reservations, contact/booking forms, "loads faster" or any other speed/performance comparison, being ' +
-  '"up to date" or "current" (that\'s not a property a static preview has), or anything the recipient could ' +
-  'reasonably click and find isn\'t there. Only describe what a visitor will actually SEE (the info, the ' +
-  'photos, the design, the phone link) — never what the site DOES.\n\n' +
-  'Make clear this preview is a rough starting point, not the finished product — the real, delivered site ' +
-  'would be considerably more polished and built out than this. Say this plainly, once, in your own words ' +
-  '(e.g. this is just a quick taste of the idea, the real thing would be built out properly) — don\'t list ' +
-  'specific features you\'d add, since none of those are agreed yet, and don\'t undersell the preview either.\n\n' +
+  'You are writing on behalf of a small website agency\'s team, emailing a local business owner for the ' +
+  'first time. Write in first person PLURAL throughout — "we"/"our"/"us", never "I"/"my"/"me" — this ' +
+  'matches the sign-off ("The Colonbyte Team"), so the voice must be consistent with it from the first ' +
+  'word. Still write like an actual person on that team typed this in two minutes on their laptop — not ' +
+  'like an AI, not like a marketing template. Ground every claim ONLY in the facts given — never invent ' +
+  'customer counts, revenue figures, or competitor names.\n\n' +
+  'primaryOpportunity is not always about the website — it may instead be a specific observation about ' +
+  'how the business handles customer questions, bookings, enquiries, follow-ups, or internal workflows, ' +
+  'pointing toward an AI assistant, automation, or software opportunity rather than a new site. Write ' +
+  'about whatever primaryOpportunity actually describes, in the business owner\'s own terms — never force ' +
+  'in "your website" language when the observation given is not about the site. If primaryOpportunity ' +
+  'points to a missing contact method (phone, email, website, booking link, etc.), never state or imply ' +
+  'that it is costing the business customers, appointments, or bookings, or that adding one would ' +
+  'increase conversions — that is an unsupported causal claim. Only note the absence plainly, then ask a ' +
+  'genuine question about how they currently handle enquiries through that channel — never assert a ' +
+  'problem on their behalf.\n\n' +
+  'The facts include a demoUrl only when a demo has already been prepared AND the sender has deliberately ' +
+  'chosen to attach it to THIS message. Most first emails will NOT have one — that is the normal, expected ' +
+  'case, not something missing. Follow whichever mode matches what you were given:\n\n' +
+  'MODE A — no demoUrl in the facts: Do not mention, hint at, or imply that any demo, preview, mockup, ' +
+  'concept, or sample exists. Never say "we put together", "we built you something", "take a look at this ' +
+  'idea", or anything similar — there is nothing to show yet. Build the whole email around the ONE ' +
+  'specific, factual observation in primaryOpportunity: state it plainly, then why it might matter for a ' +
+  'business like this. Close by opening a conversation, not offering a deliverable — e.g. ask if they\'d ' +
+  'be open to hearing a quick idea, or if it\'s worth a short reply. The only goal of this message is a ' +
+  'reply.\n\n' +
+  'MODE B — demoUrl is present in the facts: what the demo actually is: a static visual preview/mockup ' +
+  'only. It shows the business\'s name, tagline, an about paragraph, a services list, contact info ' +
+  '(address/phone/hours), and photos, plus a button that is a plain click-to-call link. That is ALL it ' +
+  'does. It has NO booking system, NO forms, NO payment processing, NO live/backend functionality of any ' +
+  'kind, and nothing on it is measured or benchmarked. NEVER claim or imply it does any of the following, ' +
+  'even loosely: online booking or reservations, contact/booking forms, "loads faster" or any other speed/' +
+  'performance comparison, being "up to date" or "current" (that\'s not a property a static preview has), ' +
+  'or anything the recipient could reasonably click and find isn\'t there. Only describe what a visitor ' +
+  'will actually SEE (the info, the photos, the design, the phone link) — never what the site DOES. Make ' +
+  'clear this preview is a rough starting point, not the finished product — the real, delivered site would ' +
+  'be considerably more polished and built out than this. Say this plainly, once, in your own words (e.g. ' +
+  'this is just a quick taste of the idea, the real thing would be built out properly) — don\'t list ' +
+  'specific features you\'d add, since none of those are agreed yet, and don\'t undersell the preview ' +
+  'either.\n\n' +
   'Hard bans, because these are the exact tells of AI-written outreach — never use any of them: ' +
   'em dashes (—) anywhere, including the sign-off; the words/phrases "visual credibility", "strengthen ' +
   'trust", "tailor the layout to match your brand", "elevate", "seamless", "unlock", "showcase", "in ' +
-  'today\'s digital age", "I noticed that", "I hope this finds you well", "Feel free to", "at your ' +
+  'today\'s digital age", "we noticed that", "we hope this finds you well", "Feel free to", "at your ' +
   'convenience", "No pressure", "just reply or book a quick call", "streamline"; any sentence that ' +
   'restates the demo\'s own tagline back at them; three-paragraph structure where paragraph 2 is a ' +
   'bulleted-sounding list of benefits in prose form.\n\n' +
+  'If primaryOpportunity already includes a short clause explaining why the observation is worth asking ' +
+  'about, keep that reasoning in the email — trim word count elsewhere (shorter sentences, cut filler) ' +
+  'rather than compressing it away, since dropping it is what makes a message read like a random fact from ' +
+  'a stranger instead of someone with an actual reason to be asking.\n\n' +
   'Instead: 60-120 words total, one clear idea, sentences of different lengths (some short, some longer — ' +
-  'not uniform), contractions are fine (I\'d, you\'re, it\'s). Open with the single most concrete, specific ' +
-  'thing from the facts given — not a generic compliment. State plainly what you built (a preview site) and ' +
-  'drop the link. Close with one plain, direct question or ask — no boilerplate softener sentence about ' +
-  'pressure. No subject line clickbait, no ALL CAPS, no exclamation points unless something genuinely ' +
-  'warrants one (rare). Body must be plain text (no markdown, no HTML), and end with a sign-off line ' +
-  '"The Colonbyte Team" on its own line, with nothing after it and no dash of any kind before it.\n\n' +
-  'If demoUrl is present in the facts, the body MUST include that exact URL, unaltered, on its own line — ' +
-  'never paraphrase it away or drop it. Never restate the aiSummary field as a sentence; read it for facts ' +
-  'and write your own words.\n\n' +
+  'not uniform), contractions are fine (we\'d, you\'re, it\'s). Open with the single most concrete, specific ' +
+  'thing from the facts given — not a generic compliment. In MODE B, state plainly what we built (a ' +
+  'preview site) and drop the link; in MODE A, skip straight to the observation. Close with one plain, ' +
+  'direct question or ask — no boilerplate softener sentence about pressure. No subject line clickbait, no ' +
+  'ALL CAPS, no exclamation points unless something genuinely warrants one (rare). Body must be plain text ' +
+  '(no markdown, no HTML), and end with a sign-off line "The Colonbyte Team" on its own line, with nothing ' +
+  'after it and no dash of any kind before it.\n\n' +
+  'If demoUrl is present in the facts (MODE B), the body MUST include that exact URL, unaltered, on its ' +
+  'own line — never paraphrase it away or drop it. If demoUrl is absent (MODE A), the body must contain no ' +
+  'link of any kind. Never restate the aiSummary field as a sentence; read it for facts and write your own ' +
+  'words.\n\n' +
   'If websiteStatus is "unverified": their site did not load for our check (likely bot protection) — we ' +
   'have NO evidence it is bad, outdated, or missing anything. NEVER describe it as broken, outdated, or ' +
-  'lacking in any way. Instead say plainly that you tried to pull up their site to take a look and it ' +
-  'didn\'t load for you, and offer the preview as something you put together anyway/in the meantime.';
+  'lacking in any way. Instead say plainly that we tried to pull up their site to take a look and it ' +
+  'didn\'t load for us, and offer the preview as something we put together anyway/in the meantime.';
 
 const FOLLOWUP_SYSTEM_PROMPT =
-  'You are the same small website agency founder following up on your own earlier email, since the ' +
-  'business hasn\'t replied yet. Write like a real short follow-up a person sends a few days later - not ' +
-  'a resend, not a recap of the whole pitch. Ground every claim ONLY in the facts given.\n\n' +
+  'You are writing on behalf of the same small website agency team, following up on an earlier email the ' +
+  'team already sent, since the business hasn\'t replied yet. Write in first person PLURAL throughout - ' +
+  '"we"/"our"/"us", never "I"/"my"/"me" - matching the "The Colonbyte Team" sign-off. Write like a real ' +
+  'short follow-up a person on that team sends a few days later - not a resend, not a recap of the whole ' +
+  'pitch. Ground every claim ONLY in the facts given.\n\n' +
   'You will be given the ORIGINAL email you already sent (subject + body) as context - do not repeat its ' +
-  'content or re-explain the demo from scratch. Assume they read it and just haven\'t responded. This is a ' +
-  'brief, low-pressure nudge: one or two sentences acknowledging you\'re following up, one new small angle ' +
-  'or reason to look now (if the facts support one) or just a plain "still stands, let me know" - then the ' +
-  'demo link again since they may not have clicked it. 25-50 words total, not counting the sign-off.\n\n' +
-  'Hard bans: "just checking in", "following up on my last email", "circling back", "bumping this up", ' +
-  '"per my last message", "any update?", em dashes (—) anywhere, guilt-tripping or pressure language, ' +
+  'content or re-explain anything from scratch. Assume they read it and just haven\'t responded. The facts ' +
+  'include a demoUrl only when a demo has been prepared AND the sender has chosen to attach it to THIS ' +
+  'message - most follow-ups will NOT have one.\n\n' +
+  'If demoUrl is absent: this is a brief, low-pressure nudge with no demo to mention - one or two sentences ' +
+  'acknowledging we\'re following up, one new small angle if the facts genuinely support one, or just a ' +
+  'plain "still stands, let us know" referring back to the original email\'s point. Do not invent or imply ' +
+  'a demo/preview exists. 20-40 words total, not counting the sign-off.\n\n' +
+  'If demoUrl is present: same brief, low-pressure nudge, but we now have something concrete to point to - ' +
+  'one short sentence saying we put together a quick preview (only now, not in the original email, unless ' +
+  'the original already mentioned one), then the link. 25-50 words total, not counting the sign-off.\n\n' +
+  'Hard bans: "just checking in", "following up on our last email", "circling back", "bumping this up", ' +
+  '"per our last message", "any update?", em dashes (—) anywhere, guilt-tripping or pressure language, ' +
   'restating the demo\'s tagline. No subject line clickbait, no ALL CAPS.\n\n' +
   'If websiteStatus is "unverified": their site did not load for our check (likely bot protection) — we ' +
   'have NO evidence it is bad, outdated, missing anything, or needs "verifying" in any SEO/Google-listing ' +
   'sense. NEVER frame it as something wrong with their site or something they should fix — that is not ' +
-  'what this status means. If you mention it at all, say only that you still could not get their site to ' +
+  'what this status means. If you mention it at all, say only that we still could not get their site to ' +
   'load, nothing more.\n\n' +
   'If demoUrl is present in the facts, the body MUST include that exact URL, unaltered, on its own line. ' +
-  'Body must be plain text (no markdown, no HTML), and end with a sign-off line "The Colonbyte Team" on ' +
-  'its own line, with nothing after it and no dash of any kind before it.';
+  'If demoUrl is absent, the body must contain no link of any kind. Body must be plain text (no markdown, ' +
+  'no HTML), and end with a sign-off line "The Colonbyte Team" on its own line, with nothing after it and ' +
+  'no dash of any kind before it.';
 
-function buildFacts(lead) {
+// includeDemo is a per-message choice the user makes explicitly (a checkbox in the drawer) -
+// never inferred automatically. Demo strategy here is intentionally manual, not AI-decided: the
+// demo is meant to be held back until there's a real reply, so a demoUrl only ever reaches the
+// prompt when the user opts in for that specific generation.
+function buildFacts(lead, { includeDemo = false } = {}) {
+  const demoCompleted = lead.demoSite?.status === 'completed';
+  const opportunity = lead.opportunityAnalysis;
+  const hasOpportunityAngle = opportunity?.status === 'completed' && !!opportunity.outreachAngle;
   return {
     businessName: lead.businessName,
     category: lead.category || 'unknown',
     address: lead.address || 'unknown',
     websiteStatus: lead.websiteStatus,
     aiSummary: lead.aiAnalysis?.summary || 'none available',
-    topSuggestion: lead.aiAnalysis?.suggestions?.[0] || 'none available',
-    demoUrl: lead.demoSite?.status === 'completed' ? `${process.env.PUBLIC_BASE_URL || ''}/demo/${lead._id}` : null,
-    demoTagline: lead.demoSite?.tagline || '',
+    // The opportunity engine's outreach angle (services/opportunityAnalysis.js) is the
+    // authoritative single angle to build the email around — it may be about the website OR
+    // about an AI/automation/software opportunity (see solutionCategory), so this is not always
+    // "your site" content. Falls back to the older aiAnalysis-derived angle only for leads
+    // analyzed before the opportunity engine existed.
+    primaryOpportunity: hasOpportunityAngle
+      ? opportunity.outreachAngle
+      : lead.aiAnalysis?.opportunity || lead.aiAnalysis?.suggestions?.[0] || 'none available',
+    demoUrl: includeDemo && demoCompleted ? `${process.env.PUBLIC_BASE_URL || ''}/demo/${lead._id}` : null,
+    demoTagline: includeDemo && demoCompleted ? lead.demoSite.tagline || '' : '',
   };
 }
 
@@ -93,34 +145,24 @@ function buildFacts(lead) {
  * throws, returns null on any error so callers can report { status: 'failed' }.
  */
 async function callGroqForEmail(systemPrompt, userPrompt) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return null;
-
   try {
-    const res = await fetch(GROQ_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        response_format: { type: 'json_schema', json_schema: RESPONSE_SCHEMA },
-        temperature: 0.5,
-        // gpt-oss-20b reasons by default, and this prompt's long list of hard constraints
-        // (banned phrases, exact formatting rules) pushes it to reason hard about satisfying
-        // all of them — measured live: it was burning ~1500-1600 of its ~1700-1700 completion
-        // tokens on reasoning alone, a 50% failure rate from simply running out of budget
-        // before finishing. 'low' cut that to ~30-100 reasoning tokens with no quality loss
-        // and a 100% success rate across repeated live tests.
-        reasoning_effort: 'low',
-      }),
-      signal: AbortSignal.timeout(30000),
+    const res = await groqFetch({
+      model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      response_format: { type: 'json_schema', json_schema: RESPONSE_SCHEMA },
+      temperature: 0.5,
+      // gpt-oss-20b reasons by default, and this prompt's long list of hard constraints
+      // (banned phrases, exact formatting rules) pushes it to reason hard about satisfying
+      // all of them — measured live: it was burning ~1500-1600 of its ~1700-1700 completion
+      // tokens on reasoning alone, a 50% failure rate from simply running out of budget
+      // before finishing. 'low' cut that to ~30-100 reasoning tokens with no quality loss
+      // and a 100% success rate across repeated live tests.
+      reasoning_effort: 'low',
     });
+    if (!res) return null;
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
@@ -156,11 +198,12 @@ function ensureSignOff(body) {
 }
 
 /**
- * Requires aiAnalysis + demoSite to already be completed (routes/leads.js enforces this) so
- * the email has real grounded content to draw on.
+ * Requires aiAnalysis to already be completed (routes/leads.js enforces this) so the email has
+ * real grounded content to draw on. The demo is NOT required - includeDemo is a manual, per-call
+ * choice (see buildFacts) so outreach can go out well before any demo exists.
  */
-export async function generateOutreach(lead) {
-  const userPrompt = `Draft an outreach email for this lead:\n${JSON.stringify(buildFacts(lead), null, 2)}`;
+export async function generateOutreach(lead, { includeDemo = false } = {}) {
+  const userPrompt = `Draft an outreach email for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}`;
   const result = await callGroqForEmail(SYSTEM_PROMPT, userPrompt);
   if (!result) return { status: 'failed' };
   return { ...result, status: 'drafted', generatedAt: new Date() };
@@ -168,12 +211,13 @@ export async function generateOutreach(lead) {
 
 /**
  * Requires lead.outreach.status === 'sent' (routes/leads.js enforces this) - the follow-up
- * references the original subject/body as context so it doesn't repeat the pitch.
+ * references the original subject/body as context so it doesn't repeat the pitch. includeDemo
+ * is the same manual per-call choice as generateOutreach.
  */
-export async function generateFollowUpEmail(lead) {
+export async function generateFollowUpEmail(lead, { includeDemo = false } = {}) {
   const userPrompt =
     `The ORIGINAL email already sent:\n${JSON.stringify({ subject: lead.outreach.subject, body: lead.outreach.body }, null, 2)}\n\n` +
-    `Draft a brief follow-up for this lead:\n${JSON.stringify(buildFacts(lead), null, 2)}`;
+    `Draft a brief follow-up for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}`;
   const result = await callGroqForEmail(FOLLOWUP_SYSTEM_PROMPT, userPrompt);
   if (!result) return { status: 'failed' };
   return { ...result, status: 'drafted', generatedAt: new Date() };

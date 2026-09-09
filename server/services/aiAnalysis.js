@@ -1,4 +1,4 @@
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+import { groqFetch } from './groqClient.js';
 
 const RESPONSE_SCHEMA = {
   name: 'business_analysis',
@@ -7,43 +7,69 @@ const RESPONSE_SCHEMA = {
     type: 'object',
     properties: {
       summary: { type: 'string' },
+      worthContacting: { type: 'boolean' },
       strengths: { type: 'array', items: { type: 'string' } },
       weaknesses: { type: 'array', items: { type: 'string' } },
+      opportunity: { type: 'string' },
       suggestions: { type: 'array', items: { type: 'string' } },
-      estimatedLostCustomers: { type: 'string' },
-      leadQualityScore: { type: 'integer' },
-      websiteOpportunityScore: { type: 'integer' },
-      revenueOpportunityEstimate: { type: 'string' },
     },
-    required: [
-      'summary',
-      'strengths',
-      'weaknesses',
-      'suggestions',
-      'estimatedLostCustomers',
-      'leadQualityScore',
-      'websiteOpportunityScore',
-      'revenueOpportunityEstimate',
-    ],
+    required: ['summary', 'worthContacting', 'strengths', 'weaknesses', 'opportunity', 'suggestions'],
     additionalProperties: false,
   },
 };
 
 const SYSTEM_PROMPT =
-  'You are a website-agency analyst. You are given structured data about a local business ' +
-  'scraped from Google Maps. Write a grounded, honest analysis using ONLY the data provided — ' +
-  'never invent facts (specific revenue figures, competitor names, customer counts) that were not ' +
-  'given to you.\n' +
-  'Frame "estimatedLostCustomers" (format: "X-Y per month") and "revenueOpportunityEstimate" ' +
-  '(format: "$X-Y/month") as rough, hedged ranges, not guarantees — but the actual numbers MUST be ' +
-  'calibrated to this specific business\'s facts, not a stock phrase reused across businesses. ' +
-  'reviewCount is your strongest signal of scale: a business with thousands of reviews has vastly ' +
-  'more foot traffic (and more to lose from a weak web presence) than one with a handful — its ' +
-  'estimates should be a full order of magnitude larger, not the same range. Category sets the ' +
-  'price point (a hotel booking vs. a dental appointment vs. a plumber\'s call-out are worth very ' +
-  'different amounts) — factor that into the dollar range. Two businesses with different ' +
-  'rating/reviewCount/category should essentially never land on identical numbers.\n' +
-  'leadQualityScore and websiteOpportunityScore are integers from 0 to 100.';
+  'You are COLONBYTE\'s business-quality analyst, deciding whether a local business (scraped from Google ' +
+  'Maps) is an ESTABLISHED, commercially-viable business worth a human salesperson\'s time to contact at ' +
+  'all. COLONBYTE is an AI + web development agency that can help with websites, AI assistants/chatbots, ' +
+  'lead qualification, follow-up automation, appointment/enquiry workflows, internal tools, and more - ' +
+  'but deciding WHICH of those (if any) fits happens in a separate, later analysis pass. Your only job ' +
+  'here is the business-quality gate: is this a real, viable business worth that later analysis being run ' +
+  'on at all? Use ONLY the data given — never invent facts: no revenue figures, customer counts, ' +
+  'competitor names, traffic/conversion numbers, or any other statistic not present in the input. Do not ' +
+  'produce numeric scores of any kind — this analysis is qualitative and explainable, not a scored ' +
+  'ranking.\n\n' +
+  'CRITICAL: do NOT judge business quality by website condition. Website condition (no site, broken, ' +
+  'outdated, weak, or even an excellent site) is NOT a business-quality signal in either direction - a ' +
+  'business with an excellent website can be just as worth contacting as one with none, and a bad website ' +
+  'never substitutes for real demand evidence. Judge business quality purely from: rating and reviewCount ' +
+  '(demand and reputation - a handful of reviews is a much weaker signal than dozens), whether it has real ' +
+  'contact info (phone/address), and whether its category and hours suggest an ongoing, operating concern ' +
+  'rather than something barely running.\n\n' +
+  'Work through these questions using only the given facts:\n' +
+  '1. What is genuinely good about this business (reputation, demand, longevity signals)? Is there enough ' +
+  'here to call it an established, viable business at all?\n' +
+  '2. What, if anything, is weak about it as a business (thin reviews, no reachable contact info, signs of ' +
+  'barely operating)? Never claim a defect you cannot point to in the facts.\n' +
+  '3. Setting website condition aside entirely, does this look like a business with real, ongoing demand ' +
+  'that a sales conversation is worth having with?\n\n' +
+  'CRITICAL — websiteStatus "facebook_only", "instagram_only", or "google_business_only" means the ' +
+  '"website" field on this business is actually a social/listing profile, not an independently-owned ' +
+  'site — and Leadforge has NEVER inspected the content of that profile (no bio text, no links in the ' +
+  'bio, no posts, no photo count on that platform, no DM/booking setup). NEVER claim or imply anything ' +
+  'about what is or isn\'t on that profile (e.g. "no booking link", "only one photo", "no bio link") - ' +
+  'the only confirmed fact in this situation is that no independently-owned website exists. ' +
+  'googleMapsListingPhotoCount is ONLY the photo count on the Google Maps listing itself — never describe ' +
+  'it as a photo count on Instagram, Facebook, or any other platform.\n\n' +
+  'CRITICAL — a missing contact method (no phone number, email, website, booking link, WhatsApp link, ' +
+  'etc. on the listing) is an OBSERVATION, not a business-quality defect and not proof of a conversion ' +
+  'problem. Never state or imply it is "limiting," "hindering," "costing," or reducing bookings/trust/' +
+  'engagement — that is an unsupported causal claim. If you mention one in "weaknesses," phrase it as a ' +
+  'plain, neutral fact of what is absent (e.g. "No phone number listed") with no implied consequence.\n\n' +
+  'Set "worthContacting" to true only when the business-quality case above is credible on its own - real ' +
+  'demand and reputation signals, reachable, an operating concern. A business with few or no reviews and ' +
+  'thin signal overall is NOT worth contacting regardless of its website - say so plainly in "summary" ' +
+  'rather than manufacturing a reason. Never force it.\n\n' +
+  '"opportunity" is optional context, not the deciding factor: if the given facts happen to make a ' +
+  'specific business-side observation obvious (e.g. real demand signals but a listing-only or hard-to-' +
+  'find presence), note it in one or two sentences; otherwise leave it an empty string - do not strain to ' +
+  'produce one, and never assume it must be about the website. Leave it empty whenever worthContacting is ' +
+  'false. "suggestions" is a short qualitative list (0-4 items) of concrete, plausible business-side ' +
+  'observations consistent with the weaknesses noted - optional, not scored, not guaranteed, and never ' +
+  'invented specifics (no page names, no metrics) beyond what the facts support.\n\n' +
+  'reviewCount and rating are your signal of real customer demand and reputation; category tells you ' +
+  'the likely customer journey (a hotel booking vs. a dental appointment vs. a plumber\'s call-out ' +
+  'behave differently) - use both to judge plausibility and worth, never to back into a specific number.';
 
 function buildUserPrompt(lead) {
   const facts = {
@@ -52,7 +78,11 @@ function buildUserPrompt(lead) {
     rating: lead.rating ?? 'unknown',
     reviewCount: lead.reviewCount ?? 'unknown',
     openingHoursSummary: lead.openingHoursSummary || 'unknown',
-    photoCount: lead.photoCount ?? 0,
+    // Named explicitly (not "photoCount") so it can never be misread as a photo count on
+    // Instagram/Facebook when websiteStatus is instagram_only/facebook_only - this is ONLY ever
+    // the number of photos on the Google Maps listing itself, which Leadforge has never scraped
+    // any social profile to know anything about.
+    googleMapsListingPhotoCount: lead.photoCount ?? 0,
     address: lead.address || 'unknown',
     phone: lead.phone || 'none listed',
     website: lead.website || 'none',
@@ -60,11 +90,6 @@ function buildUserPrompt(lead) {
     websiteQualityScore: lead.websiteQualityScore,
   };
   return `Analyze this business:\n${JSON.stringify(facts, null, 2)}`;
-}
-
-function clampScore(value) {
-  if (typeof value !== 'number' || Number.isNaN(value)) return null;
-  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 /**
@@ -75,35 +100,23 @@ function clampScore(value) {
  * https://console.groq.com/docs/structured-outputs
  */
 export async function analyzeLead(lead) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    return { status: 'failed' };
-  }
-
   try {
-    const res = await fetch(GROQ_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: buildUserPrompt(lead) },
-        ],
-        response_format: { type: 'json_schema', json_schema: RESPONSE_SCHEMA },
-        temperature: 0.4,
-        // See outreachGenerator.js's identical setting — gpt-oss-20b's default reasoning can
-        // burn most of its completion-token budget before emitting the JSON, causing
-        // intermittent 'Failed to validate JSON' failures. 'low' fixes that and also cuts
-        // token usage well under half, easing pressure on the shared 8000 TPM budget this
-        // model shares with the other two Groq calls in the pipeline.
-        reasoning_effort: 'low',
-      }),
-      signal: AbortSignal.timeout(30000),
+    const res = await groqFetch({
+      model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: buildUserPrompt(lead) },
+      ],
+      response_format: { type: 'json_schema', json_schema: RESPONSE_SCHEMA },
+      temperature: 0.4,
+      // See outreachGenerator.js's identical setting — gpt-oss-20b's default reasoning can
+      // burn most of its completion-token budget before emitting the JSON, causing
+      // intermittent 'Failed to validate JSON' failures. 'low' fixes that and also cuts
+      // token usage well under half, easing pressure on the shared 8000 TPM budget this
+      // model shares with the other two Groq calls in the pipeline.
+      reasoning_effort: 'low',
     });
+    if (!res) return { status: 'failed' };
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
@@ -119,13 +132,11 @@ export async function analyzeLead(lead) {
 
     return {
       summary: parsed.summary || '',
+      worthContacting: typeof parsed.worthContacting === 'boolean' ? parsed.worthContacting : null,
       strengths: Array.isArray(parsed.strengths) ? parsed.strengths : [],
       weaknesses: Array.isArray(parsed.weaknesses) ? parsed.weaknesses : [],
+      opportunity: parsed.opportunity || '',
       suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
-      estimatedLostCustomers: parsed.estimatedLostCustomers || '',
-      leadQualityScore: clampScore(parsed.leadQualityScore),
-      websiteOpportunityScore: clampScore(parsed.websiteOpportunityScore),
-      revenueOpportunityEstimate: parsed.revenueOpportunityEstimate || '',
       status: 'completed',
       analyzedAt: new Date(),
     };

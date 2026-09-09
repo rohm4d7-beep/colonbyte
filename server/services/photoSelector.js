@@ -1,4 +1,4 @@
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+import { groqFetch } from './groqClient.js';
 
 const VISION_MODEL = 'qwen/qwen3.6-27b';
 
@@ -30,8 +30,7 @@ const SYSTEM_PROMPT =
  * photo) and fall back to a stock photo or the single scraped hero photo.
  */
 export async function selectBestPhoto(photoUrls, { businessName, category }) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey || !photoUrls?.length) return null;
+  if (!photoUrls?.length) return null;
 
   const candidates = photoUrls.slice(0, MAX_IMAGES);
 
@@ -45,28 +44,21 @@ export async function selectBestPhoto(photoUrls, { businessName, category }) {
       ...candidates.map((url) => ({ type: 'image_url', image_url: { url } })),
     ];
 
-    const res = await fetch(GROQ_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: VISION_MODEL,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content },
-        ],
-        response_format: { type: 'json_object' },
-        // qwen3.6-27b defaults to "thinking" mode, which for this prompt reliably burns its
-        // whole output budget on reasoning tokens and returns an empty completion — Groq then
-        // rejects the empty string against response_format's json_object requirement with a
-        // useless "Failed to validate JSON" error. Disabling thinking fixes it (verified live).
-        reasoning_effort: 'none',
-        temperature: 0.2,
-      }),
-      signal: AbortSignal.timeout(30000),
+    const res = await groqFetch({
+      model: VISION_MODEL,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content },
+      ],
+      response_format: { type: 'json_object' },
+      // qwen3.6-27b defaults to "thinking" mode, which for this prompt reliably burns its
+      // whole output budget on reasoning tokens and returns an empty completion — Groq then
+      // rejects the empty string against response_format's json_object requirement with a
+      // useless "Failed to validate JSON" error. Disabling thinking fixes it (verified live).
+      reasoning_effort: 'none',
+      temperature: 0.2,
     });
+    if (!res) return null;
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
