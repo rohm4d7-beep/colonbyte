@@ -4,7 +4,7 @@ import { rateLimit } from 'express-rate-limit';
 import { chromium } from 'playwright';
 import Lead from '../models/Lead.js';
 import { scrapeGoogleMaps } from '../services/googleMapsScraper.js';
-import { extractContactInfoFromWebsite } from '../services/emailExtractor.js';
+import { extractContactInfoFromWebsite, isRealSocialProfileUrl } from '../services/emailExtractor.js';
 import { verifyCountry, resolveCountryCode } from '../services/countryVerification.js';
 import { topCitiesForCountry } from '../services/topCities.js';
 import { findDuplicateLead, normalizePhone, normalizeWebsiteDomain, namesAreSimilar } from '../services/leadDedup.js';
@@ -16,6 +16,12 @@ const router = Router();
 // jobId -> { clients: Set<res>, last: object }
 const jobs = new Map();
 
+// The most recently started job's id, so a freshly-mounted frontend (page navigation, tab
+// reopen) can discover "is anything running right now" without already knowing a jobId -
+// see GET /active below. This is the only piece the frontend was missing; the job itself
+// already runs entirely independently of any HTTP connection (see runJob).
+let activeJobId = null;
+
 function broadcast(jobId, payload) {
   const job = jobs.get(jobId);
   if (!job) return;
@@ -25,6 +31,25 @@ function broadcast(jobId, payload) {
   if (payload.status === 'done' || payload.status === 'error') {
     setTimeout(() => jobs.delete(jobId), 60_000);
   }
+}
+
+// A duplicate match re-scrapes the same physical business, and this pass's fetch (website
+// down, bot-blocked, a transient timeout) can come back with LESS than what an earlier, more
+// successful pass already found - $set-ing that straight over the existing record would
+// silently downgrade a real email/phone/social link back to empty, with no trace of what
+// happened or why. Confirmed live: this exact job has re-run the same keyword/country search
+// multiple times tonight, so this was a live, already-occurring risk, not theoretical. Mirrors
+// the identical principle routes/leads.js's /recheck-website already enforces ("Contact fields
+// are only overwritten when a fresh value is actually found") - extended here to the scraper's
+// duplicate-merge path, which never had it. Only ever DROPS a field from the update (leaving
+// the existing value untouched); never invents or guesses a replacement.
+const CONTACT_FIELDS_NEVER_DOWNGRADED = ['email', 'instagramUrl', 'facebookUrl', 'phone', 'normalizedPhone'];
+function preserveExistingContactInfo(fields, existing) {
+  const merged = { ...fields };
+  for (const key of CONTACT_FIELDS_NEVER_DOWNGRADED) {
+    if (!merged[key] && existing[key]) delete merged[key];
+  }
+  return merged;
 }
 
 async function runJob(jobId, keyword, targetCountry, requireContact) {
@@ -72,21 +97,19 @@ async function runJob(jobId, keyword, targetCountry, requireContact) {
           return;
         }
 
-        // This is a lead-gen tool for businesses that need a NEW website — one CONFIRMED to
-        // already have a solid site is not a prospect, so check that first and skip
-        // everything else (email extraction, dedup lookup, paid AI calls) for it. Don't even
-        // save it as a lead.
-        //
-        // 'unverified' (site is up but blocked our check, e.g. WAF/bot protection) is NOT the
-        // same claim — we have no evidence either way, so it falls through instead of being
-        // silently dropped: it still gets saved for manual review, just without the paid AI
-        // report/demo (see the highPriority gate below), so it can't be mistaken for a
-        // confirmed opportunity either.
+        // This used to be a pure "needs a new website" lead-gen tool, and a business CONFIRMED
+        // to already have a solid site was discarded here entirely — never even saved. The
+        // opportunity engine (services/opportunityAnalysis.js) changed that: a business with an
+        // excellent website can still be this agency's best lead if it has a real AI/automation
+        // angle (see server/constants/opportunityOptions.js), so every business that passes
+        // country verification now gets saved regardless of website condition. websiteStatus/
+        // highPriority still drive whether it's auto-flagged as a website opportunity — they're
+        // just no longer the gate on whether the lead exists in the database at all. `hasWebsite`
+        // stays purely a visibility counter now (see ScrapeComposer.jsx), not an exclusion signal.
         const websiteAnalysis = await analyzeWebsite(item.website, analysisBrowser);
         const confirmedHasWebsite = !websiteAnalysis.highPriority && websiteAnalysis.status !== 'unverified';
         if (confirmedHasWebsite) {
           counts.hasWebsite += 1;
-          return;
         }
         if (websiteAnalysis.status === 'unverified') {
           counts.unverified += 1;
@@ -96,11 +119,18 @@ async function runJob(jobId, keyword, targetCountry, requireContact) {
         // which kind), that URL already is the Instagram/Facebook link - use it directly
         // rather than fetching instagram.com/facebook.com looking for a mailto link and a
         // "follow us" href back to itself, which would never find anything.
+        //
+        // That Maps "website" field isn't automatically trustworthy just because its hostname
+        // is instagram.com/facebook.com, though — confirmed live: a business owner had pasted a
+        // Facebook share-permalink (facebook.com/share/<code>/) into their Google Business
+        // listing's website field instead of their actual page URL, which flowed straight
+        // through here unchecked. Validate it the same way extractSocialLinks() validates a
+        // scraped href before trusting it as a real profile link.
         const contactInfoPromise =
           websiteAnalysis.status === 'instagram_only'
-            ? Promise.resolve({ email: '', instagramUrl: item.website, facebookUrl: '' })
+            ? Promise.resolve({ email: '', instagramUrl: isRealSocialProfileUrl(item.website, 'instagram') ? item.website : '', facebookUrl: '' })
             : websiteAnalysis.status === 'facebook_only'
-            ? Promise.resolve({ email: '', instagramUrl: '', facebookUrl: item.website })
+            ? Promise.resolve({ email: '', instagramUrl: '', facebookUrl: isRealSocialProfileUrl(item.website, 'facebook') ? item.website : '' })
             : extractContactInfoFromWebsite(item.website, analysisBrowser);
 
         const [contactInfo, duplicate] = await Promise.all([
@@ -127,14 +157,18 @@ async function runJob(jobId, keyword, targetCountry, requireContact) {
         }
         // requireContact means "skip phone/WhatsApp-only leads" specifically - a website is
         // just as usable a channel as email/Instagram/Facebook, but only when it's a CONFIRMED
-        // reachable site ('has_website' or 'outdated' - see websiteAnalyzer.js). 'unverified'
-        // (bot-blocked, we have no evidence either way) and 'broken' (confirmed dead) are NOT
-        // a usable channel and must not satisfy this - counting either would let through leads
-        // with a website field on file that a human can't actually do anything with, which is
-        // exactly what this flag exists to keep out. WhatsApp-only outreach is slow to send and
-        // the number frequently isn't even on WhatsApp, so a caller opting into this doesn't
-        // want the dashboard/DB cluttered with leads only reachable that way.
-        const hasUsableWebsite = websiteAnalysis.status === 'has_website' || websiteAnalysis.status === 'outdated';
+        // reachable site ('has_website', 'weak_website', or 'outdated' - see websiteAnalyzer.js,
+        // all three mean the page actually loaded for us). 'unverified' (bot-blocked, we have no
+        // evidence either way) and 'broken' (confirmed dead) are NOT a usable channel and must
+        // not satisfy this - counting either would let through leads with a website field on
+        // file that a human can't actually do anything with, which is exactly what this flag
+        // exists to keep out. WhatsApp-only outreach is slow to send and the number frequently
+        // isn't even on WhatsApp, so a caller opting into this doesn't want the dashboard/DB
+        // cluttered with leads only reachable that way.
+        const hasUsableWebsite =
+          websiteAnalysis.status === 'has_website' ||
+          websiteAnalysis.status === 'weak_website' ||
+          websiteAnalysis.status === 'outdated';
         if (requireContact && !email && !instagramUrl && !facebookUrl && !hasUsableWebsite) return;
 
         // The bulk Maps visit above only ever grabs the single hero photo (opening the full
@@ -168,6 +202,7 @@ async function runJob(jobId, keyword, targetCountry, requireContact) {
           photos: galleryPhotos.length > 0 ? galleryPhotos : item.photos,
           websiteStatus: websiteAnalysis.status,
           websiteQualityScore: websiteAnalysis.websiteQualityScore,
+          websiteSignals: websiteAnalysis.signals,
           highPriority: websiteAnalysis.highPriority,
           keyword,
         };
@@ -204,7 +239,7 @@ async function runJob(jobId, keyword, targetCountry, requireContact) {
             return;
           }
           counts.duplicates += 1;
-          await Lead.updateOne({ _id: duplicate._id }, { $set: fields });
+          await Lead.updateOne({ _id: duplicate._id }, { $set: preserveExistingContactInfo(fields, duplicate) });
         } else {
           try {
             counts.saved += 1;
@@ -222,7 +257,7 @@ async function runJob(jobId, keyword, targetCountry, requireContact) {
               if (winner) {
                 counts.saved -= 1;
                 counts.duplicates += 1;
-                await Lead.updateOne({ _id: winner._id }, { $set: fields });
+                await Lead.updateOne({ _id: winner._id }, { $set: preserveExistingContactInfo(fields, winner) });
                 return;
               }
             }
@@ -266,10 +301,24 @@ router.post('/start', startLimiter, (req, res) => {
 
   const jobId = randomUUID();
   jobs.set(jobId, { clients: new Set(), last: { found: 0, processed: 0, status: 'running' } });
+  activeJobId = jobId;
 
   runJob(jobId, keyword, country, requireContact);
 
   res.json({ jobId });
+});
+
+// Lets a freshly-mounted Dashboard/ScrapeComposer (page navigation, tab reopen) find and
+// reconnect to a job that's still running server-side, instead of assuming nothing is
+// happening just because it has no jobId in local component state. Returns the job's last
+// known progress too so the frontend can render the correct state on the very first paint
+// rather than a flash of "idle" before the SSE stream catches up.
+router.get('/active', (req, res) => {
+  if (!activeJobId || !jobs.has(activeJobId)) {
+    return res.json({ jobId: null });
+  }
+  const job = jobs.get(activeJobId);
+  res.json({ jobId: activeJobId, ...job.last });
 });
 
 router.get('/progress/:jobId', (req, res) => {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import API_BASE from '../config';
+import API_BASE, { apiFetch } from '../config';
 import { COUNTRIES } from '../constants/countries';
 
 function SearchIcon(props) {
@@ -172,6 +172,66 @@ export default function ScrapeComposer({ onDone }) {
     setError(null);
   };
 
+  // Shared by both a freshly-started job and a reconnect to one already running server-side
+  // (see the mount effect below) - a scrape job's lifecycle is entirely independent of this
+  // component's, so both paths just attach an SSE listener to whatever jobId is already
+  // running and render its real state. `silent` skips surfacing a connection error, since a
+  // failed reconnect attempt on mount (e.g. the job finished and was cleaned up moments ago)
+  // isn't a problem the user did anything to cause and shouldn't read as one.
+  const attachToJob = (id, { silent = false } = {}) => {
+    setJobId(id);
+
+    const es = new EventSource(`${API_BASE}/api/scrape/progress/${id}`, { withCredentials: true });
+    evtSource.current = es;
+
+    es.onmessage = e => {
+      const payload = JSON.parse(e.data);
+      setProgress(payload);
+      setLoading(true);
+      if (payload.status === 'done' || payload.status === 'error') {
+        es.close();
+        evtSource.current = null;
+        setLoading(false);
+        if (payload.status === 'done') {
+          setTimeout(() => {
+            onDone();
+            reset();
+          }, 1500);
+        }
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      evtSource.current = null;
+      setLoading(false);
+      if (silent) {
+        reset();
+      } else {
+        setError('Lost connection to server. Please try again.');
+      }
+    };
+  };
+
+  // On mount (including remounting after navigating away and back), check whether a scrape
+  // job is still running server-side and reconnect to it instead of assuming idle - the job
+  // itself never depended on this component being mounted, only the UI's awareness of it did.
+  useEffect(() => {
+    apiFetch(`${API_BASE}/api/scrape/active`)
+      .then(res => res.json())
+      .then(data => {
+        // Reconnect regardless of whether the job is still running, done, or failed - a job
+        // that finished or failed while this page was unmounted should show its real final
+        // state on return (per the "failed/completed jobs remain accurately marked" rule),
+        // not silently reset to a blank idle bar.
+        if (data.jobId) {
+          attachToJob(data.jobId, { silent: true });
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const canStart = keyword.trim() && country;
 
   const handleStart = async () => {
@@ -180,7 +240,7 @@ export default function ScrapeComposer({ onDone }) {
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE}/api/scrape/start`, {
+      const res = await apiFetch(`${API_BASE}/api/scrape/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keyword: keyword.trim(), country, requireContact }),
@@ -192,33 +252,7 @@ export default function ScrapeComposer({ onDone }) {
       }
 
       const data = await res.json();
-      setJobId(data.jobId);
-
-      const es = new EventSource(`${API_BASE}/api/scrape/progress/${data.jobId}`);
-      evtSource.current = es;
-
-      es.onmessage = e => {
-        const payload = JSON.parse(e.data);
-        setProgress(payload);
-        if (payload.status === 'done' || payload.status === 'error') {
-          es.close();
-          evtSource.current = null;
-          setLoading(false);
-          if (payload.status === 'done') {
-            setTimeout(() => {
-              onDone();
-              reset();
-            }, 1500);
-          }
-        }
-      };
-
-      es.onerror = () => {
-        es.close();
-        evtSource.current = null;
-        setLoading(false);
-        setError('Lost connection to server. Please try again.');
-      };
+      attachToJob(data.jobId);
     } catch (err) {
       setLoading(false);
       setError(err.message || 'Failed to start scraping. Is the server running?');

@@ -62,28 +62,96 @@ function extractFromText($) {
   return [...new Set(matches)].filter(looksReal);
 }
 
+// Junk path patterns that mean a URL is Facebook/Instagram platform chrome — a share-widget
+// action link, a share permalink, a tracking pixel, or a generic embed/plugin — never an
+// actual business profile, even though it genuinely contains "facebook.com"/"instagram.com".
+// sharer.php/share.php/share_channel/dialog/tr/plugins are all "click this and it acts on MY
+// own logged-in account" endpoints — confirmed live: a lead's facebookUrl was saved as
+// "facebook.com/share.php", which on click opens a "Create post" composer on the OPERATOR's
+// own personal account, not any business page at all. `/share/<code>/` (no ".php") is
+// Facebook's newer share-permalink format, generated when someone shares a page from the
+// mobile app — confirmed live on a real lead's own website, whose "Facebook" link was exactly
+// this kind of share permalink instead of their actual page URL.
+const FACEBOOK_JUNK_PATH = /(sharer\.php|\/sharer\/|share\.php|share_channel|\/share\/|\/dialog\/|\/tr\?|\/plugins\/)/i;
+const INSTAGRAM_JUNK_PATH = /\/(p|reel|explore|accounts)\//i;
+
+// A website built on a free/cheap site builder commonly ships a "Powered by X" badge in its
+// default footer template that links to the BUILDER's own social page, not the business's —
+// the business never configured (or never noticed) it. Confirmed live: a real lead's own
+// Wix-built site (airnizer.co) had its "Facebook" link scraped as "facebook.com/wix" — Wix's
+// own corporate page, not the HVAC company's. This is the same class of problem as
+// JUNK_DOMAINS below for emails (Square Online's mystore.com placeholder) — a well-known
+// platform default masquerading as the business's own data. These are exact page-handle
+// matches (the path segment right after the domain), not substring matches, so a real
+// business whose name merely contains one of these words is never affected.
+const PLATFORM_SOCIAL_HANDLES = new Set([
+  'wix', 'squarespace', 'shopify', 'godaddy', 'godaddystudio', 'weebly', 'duda', 'jimdo',
+  'strikingly', 'webflow', 'webnode', 'site123', 'wordpress', 'wordpressdotcom',
+]);
+
+function isPlatformOwnHandle(url) {
+  const firstSegment = url.pathname.replace(/^\/+|\/+$/g, '').split('/')[0]?.toLowerCase();
+  return PLATFORM_SOCIAL_HANDLES.has(firstSegment);
+}
+
+// A bare "instagram.com/" or "facebook.com/" with no path at all is a generic "follow us" icon
+// a site template ships with by default that the business never actually configured with their
+// real handle — it points at the PLATFORM's own homepage, not any profile. Confirmed live: a
+// lead's instagramUrl/facebookUrl were both saved as exactly "instagram.com/" and
+// "facebook.com/" — neither resolves to anything, let alone the business's own page.
+function hasRealProfilePath(url) {
+  return url.pathname.replace(/\/+$/, '').length > 0;
+}
+
+// Exported so callers that get a social URL from somewhere OTHER than scraping a page's own
+// HTML (routes/scrape.js and routes/leads.js both take websiteStatus 'instagram_only'/
+// 'facebook_only' leads' Google Maps "website" field and use it directly as the profile link,
+// on the theory that a Maps listing whose "website" IS a social URL already points at the
+// business's own profile) can validate it the same way, instead of trusting that field blindly.
+// Confirmed live: real leads had a Facebook share-permalink (see FACEBOOK_JUNK_PATH above)
+// saved directly as their Google Maps "website" field — the business owner had pasted a share
+// link there instead of their actual page URL, and that flowed straight through unchecked.
+export function isRealSocialProfileUrl(url, platform) {
+  if (!url) return false;
+  let parsed;
+  try {
+    parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+  } catch {
+    return false;
+  }
+  const junkPath = platform === 'facebook' ? FACEBOOK_JUNK_PATH : INSTAGRAM_JUNK_PATH;
+  if (junkPath.test(url)) return false;
+  if (isPlatformOwnHandle(parsed)) return false;
+  return hasRealProfilePath(parsed);
+}
+
 // Real business sites commonly link out to their own Instagram/Facebook in the header,
 // footer, or a "follow us" block — same page load already paid for to find an email, so
-// pulling these out too is free. Skip share-widget/plugin links (sharer.php, /dialog/,
-// /tr?, a bare instagram.com/instagram or facebook.com/facebook.com root) which are
-// platform chrome, not the business's own profile.
+// pulling these out too is free.
 function extractSocialLinks($, base) {
-  function firstProfileLink(hostPattern, skipPattern) {
-    const href = $(`a[href*="${hostPattern}"]`)
+  function firstProfileLink(hostPattern, platform) {
+    const hrefs = $(`a[href*="${hostPattern}"]`)
       .toArray()
       .map(el => $(el).attr('href') || '')
-      .find(h => h && !skipPattern.test(h));
-    if (!href) return '';
-    try {
-      return new URL(href, base).toString().split('?')[0];
-    } catch {
-      return '';
+      .filter(Boolean);
+
+    for (const href of hrefs) {
+      try {
+        const resolved = new URL(href, base).toString();
+        // Validate against the full resolved URL (query string intact) — one of the junk
+        // patterns (/tr\?) specifically depends on the "?" still being present, so this must
+        // run BEFORE the query gets stripped from the stored value below.
+        if (isRealSocialProfileUrl(resolved, platform)) return resolved.split('?')[0];
+      } catch {
+        // malformed href - skip and try the next candidate
+      }
     }
+    return '';
   }
 
   return {
-    instagramUrl: firstProfileLink('instagram.com', /\/(p|reel|explore|accounts)\//i),
-    facebookUrl: firstProfileLink('facebook.com', /(sharer\.php|\/dialog\/|\/tr\?|\/plugins\/)/i),
+    instagramUrl: firstProfileLink('instagram.com', 'instagram'),
+    facebookUrl: firstProfileLink('facebook.com', 'facebook'),
   };
 }
 
