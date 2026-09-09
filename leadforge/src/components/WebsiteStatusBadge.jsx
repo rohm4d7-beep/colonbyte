@@ -9,7 +9,11 @@ export const WEBSITE_STATUS_META = {
   instagram_only: { label: 'Instagram Only', color: 'var(--color-accent-2)' },
   google_business_only: { label: 'Google Business Only', color: 'var(--color-accent-2)' },
   outdated: { label: 'Outdated', color: 'var(--color-accent-2)' },
-  has_website: { label: 'Has Website', color: 'var(--color-success)' },
+  // A real site that's just weak (thin metadata, no social/contact links) - distinct from a
+  // confirmed-strong `has_website` below. This is the preferred kind of lead: an existing
+  // presence worth improving, not a first-time sell.
+  weak_website: { label: 'Weak Website', color: 'var(--color-accent-2)' },
+  has_website: { label: 'Strong Website', color: 'var(--color-success)' },
 };
 
 // Not one of the real, computed statuses above — used only when a lead has never actually

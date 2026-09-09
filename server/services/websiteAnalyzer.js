@@ -99,6 +99,65 @@ async function attemptFetch(url, sharedBrowser) {
   return { ok: false, blocked: first.blocked || second.blocked };
 }
 
+// Heuristic, keyword/DOM-based detection of a handful of customer-journey signals from the
+// same page HTML analyzeWebsite() already fetched for scoring — this is the opportunity
+// engine's only source of website-derived evidence (see services/opportunityAnalysis.js), so
+// it deliberately does NOT fetch or scrape anything new. These are detection heuristics, not
+// proof of what the business actually does internally — opportunityAnalysis.js's prompt is the
+// place that keeps "a booking widget is present" from turning into "this business gets lots of
+// bookings" or similar unsupported claims.
+const CHAT_WIDGET_MARKERS = [
+  'intercom', 'drift.com', 'tawk.to', 'crisp.chat', 'zdassets.com', 'livechatinc',
+  'tidio', 'freshchat', 'hubspot.com/conversations', 'gorgias.chat', 'chatwoot',
+];
+
+function detectWebsiteSignals($, rawHtmlLower) {
+  const bodyText = $('body').text().toLowerCase();
+
+  const hasBookingLanguage =
+    /\b(book now|book online|book an appointment|schedule (a|your) (appointment|visit|consultation)|reserve (a table|now)|check availability)\b/.test(
+      bodyText
+    ) || $('a[href*="book"], a[href*="schedule"], a[href*="reserve"], iframe[src*="calendly"], iframe[src*="acuityscheduling"]').length > 0;
+
+  const hasQuoteOrEnquiryForm =
+    $('form').length > 0 &&
+    (/\b(get a quote|request a quote|get an estimate|enquire|enquiry|inquiry|contact us|request a callback)\b/.test(bodyText) ||
+      $('input[type="email"], textarea').length > 0);
+
+  const hasFaqSection =
+    /\b(frequently asked questions|faqs?)\b/.test(bodyText) || $('[class*="faq" i], [id*="faq" i]').length > 0;
+
+  const hasChatWidget = CHAT_WIDGET_MARKERS.some((marker) => rawHtmlLower.includes(marker));
+
+  const hasMultipleLocationsLanguage = /\b(our locations|find a location|locations near you|multiple locations)\b/.test(bodyText);
+
+  const hasMultiplePractitionersLanguage = /\b(our team|meet the team|our staff|our doctors|our stylists|our agents)\b/.test(bodyText);
+
+  // A rough proxy for "how much service/content depth this site has," not an exact count —
+  // used only as a qualitative evidence input, never presented as a precise figure.
+  const navLinkCount = $('nav a, header a').length;
+
+  return {
+    hasBookingLanguage,
+    hasQuoteOrEnquiryForm,
+    hasFaqSection,
+    hasChatWidget,
+    hasMultipleLocationsLanguage,
+    hasMultiplePractitionersLanguage,
+    navLinkCount,
+  };
+}
+
+const NO_SIGNALS = {
+  hasBookingLanguage: false,
+  hasQuoteOrEnquiryForm: false,
+  hasFaqSection: false,
+  hasChatWidget: false,
+  hasMultipleLocationsLanguage: false,
+  hasMultiplePractitionersLanguage: false,
+  navLinkCount: 0,
+};
+
 /**
  * Rule-based website classification + quality score (0-100), no AI calls.
  * Anything other than a solid `has_website` result is flagged highPriority,
@@ -107,13 +166,13 @@ async function attemptFetch(url, sharedBrowser) {
  */
 export async function analyzeWebsite(website, sharedBrowser) {
   if (!website) {
-    return { status: 'none', websiteQualityScore: 0, highPriority: true };
+    return { status: 'none', websiteQualityScore: 0, highPriority: true, signals: NO_SIGNALS };
   }
 
   const hostname = hostnameOf(website);
   for (const [host, status] of Object.entries(SOCIAL_HOSTS)) {
     if (hostname === host || hostname.endsWith(`.${host}`)) {
-      return { status, websiteQualityScore: 15, highPriority: true };
+      return { status, websiteQualityScore: 15, highPriority: true, signals: NO_SIGNALS };
     }
   }
 
@@ -131,9 +190,9 @@ export async function analyzeWebsite(website, sharedBrowser) {
     // a business with enterprise-grade bot protection is unlikely to be this agency's target
     // customer anyway, so it shouldn't get pitched a replacement site on a false premise.
     if (result.blocked) {
-      return { status: 'unverified', websiteQualityScore: 0, highPriority: false };
+      return { status: 'unverified', websiteQualityScore: 0, highPriority: false, signals: NO_SIGNALS };
     }
-    return { status: 'broken', websiteQualityScore: 0, highPriority: true };
+    return { status: 'broken', websiteQualityScore: 0, highPriority: true, signals: NO_SIGNALS };
   }
 
   const $ = cheerio.load(result.html);
@@ -160,7 +219,7 @@ export async function analyzeWebsite(website, sharedBrowser) {
     rawHtmlLower.includes('_incapsula_resource') ||
     rawHtmlLower.includes('incapsula incident id');
   if (looksLikeChallenge) {
-    return { status: 'unverified', websiteQualityScore: 0, highPriority: false };
+    return { status: 'unverified', websiteQualityScore: 0, highPriority: false, signals: NO_SIGNALS };
   }
 
   let score = 100;
@@ -185,8 +244,15 @@ export async function analyzeWebsite(website, sharedBrowser) {
 
   score = Math.max(0, Math.min(100, score));
 
-  const status = score < 40 ? 'outdated' : 'has_website';
-  const highPriority = status !== 'has_website' || score < 60;
+  // Three real bands, not two - a 40-59 site is a genuine working site, just a weak one
+  // (thin metadata, no social/contact links, stale copyright year). Calling that `has_website`
+  // used to hide it behind a generic "solid site" label with only the raw score number to tell
+  // it apart - `weak_website` makes "existing but improvable" a first-class status instead of
+  // an implementation detail of the score. Below 60 stays highPriority either way; only a
+  // confirmed-strong (>=60) site is excluded as a target.
+  const status = score < 40 ? 'outdated' : score < 60 ? 'weak_website' : 'has_website';
+  const highPriority = status !== 'has_website';
+  const signals = detectWebsiteSignals($, rawHtmlLower);
 
-  return { status, websiteQualityScore: score, highPriority };
+  return { status, websiteQualityScore: score, highPriority, signals };
 }
