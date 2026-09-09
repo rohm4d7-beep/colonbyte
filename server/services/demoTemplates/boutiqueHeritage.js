@@ -84,6 +84,7 @@ export function renderTemplate(lead, demoSite) {
     googleFont: 'https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,500;1,400&family=Inter:wght@400;500;600&display=swap',
     bodyStyle: "font-family:'Inter',system-ui,sans-serif;background:#fdfbf6;color:#2e2a20;",
     accentColor,
+    businessName: lead.businessName,
     content,
   });
 }

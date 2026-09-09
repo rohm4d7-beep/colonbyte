@@ -65,6 +65,7 @@ export function renderTemplate(lead, demoSite) {
     googleFont: 'https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700;800&display=swap',
     bodyStyle: "font-family:'Work Sans',system-ui,sans-serif;background:#fff;color:#1e293b;",
     accentColor,
+    businessName: lead.businessName,
     content,
   });
 }

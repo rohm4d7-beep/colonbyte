@@ -28,10 +28,14 @@ export function escapeHtml(str) {
   }[c]));
 }
 
-export function renderPreviewBanner(accentColor) {
+// Understated on purpose (see server/services/demoTemplates/shared.js history) - the prospect
+// should experience the concept's quality before anything else on the page. Still transparent
+// (never implies ownership/official affiliation) and still the first thing rendered, just not
+// styled as the visual centerpiece the old accent-colored full-width banner was.
+export function renderPreviewBanner(accentColor, businessName) {
   return `
-    <div style="background:${accentColor};color:${readableTextColor(accentColor)};text-align:center;font:600 13px/1.4 system-ui,sans-serif;padding:8px 16px;">
-      This is an AI-generated demo preview built by Colon Byte — not this business's official website.
+    <div style="background:#f4f4f5;color:#71717a;text-align:center;font:500 11.5px/1.4 system-ui,sans-serif;padding:5px 16px;">
+      Private website concept prepared by COLONBYTE. Not the official website of ${escapeHtml(businessName || 'this business')}.
     </div>
   `;
 }
@@ -114,7 +118,7 @@ export function renderContactFooter(lead) {
   `;
 }
 
-export function htmlDocument({ title, googleFont, bodyStyle, accentColor, content }) {
+export function htmlDocument({ title, googleFont, bodyStyle, accentColor, businessName, content }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -140,7 +144,7 @@ ${googleFont ? `<link rel="preconnect" href="https://fonts.googleapis.com" /><li
 </style>
 </head>
 <body>
-${renderPreviewBanner(accentColor)}
+${renderPreviewBanner(accentColor, businessName)}
 ${content}
 </body>
 </html>`;
