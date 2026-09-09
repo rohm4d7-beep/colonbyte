@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import WebsiteStatusBadge from './WebsiteStatusBadge';
+import { OPPORTUNITY_LABELS } from '../constants/opportunityLabels';
 
 function InstagramIcon(props) {
   return (
@@ -67,7 +68,16 @@ export default function LeadsTable({ leads, onStatusChange, onDelete, onSelectLe
               className="group border-b transition-colors duration-150"
               style={{
                 borderColor: 'rgba(255,255,255,0.08)',
-                boxShadow: lead.highPriority ? 'inset 3px 0 0 var(--color-accent-2)' : 'none',
+                // Mirrors routes/leads.js's priorityRank top tier — a confirmed opportunity
+                // (any category, regardless of website condition) is a priority lead just as
+                // much as the old website-only highPriority signal.
+                boxShadow:
+                  lead.highPriority ||
+                  (lead.opportunityAnalysis?.status === 'completed' &&
+                    lead.opportunityAnalysis.primaryOpportunity &&
+                    lead.opportunityAnalysis.primaryOpportunity !== 'NO_STRONG_OPPORTUNITY')
+                    ? 'inset 3px 0 0 var(--color-accent-2)'
+                    : 'none',
               }}
               onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
               onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
@@ -80,14 +90,27 @@ export default function LeadsTable({ leads, onStatusChange, onDelete, onSelectLe
                 >
                   {lead.businessName}
                 </button>
-                {lead.aiAnalysis?.status === 'completed' && typeof lead.aiAnalysis.leadQualityScore === 'number' && (
+                {lead.opportunityAnalysis?.status === 'completed' &&
+                lead.opportunityAnalysis.primaryOpportunity &&
+                lead.opportunityAnalysis.primaryOpportunity !== 'NO_STRONG_OPPORTUNITY' ? (
                   <span
-                    className="ml-2 inline-flex items-center font-mono text-[11px] font-medium tnum px-1.5 py-0.5 rounded"
+                    className="ml-2 inline-flex items-center text-[11px] font-medium px-1.5 py-0.5 rounded"
                     style={{ background: 'rgba(61,86,232,0.25)', color: '#8fa0ff' }}
-                    title="AI lead quality score"
+                    title={lead.opportunityAnalysis.outreachAngle || 'A credible opportunity was found for this lead'}
                   >
-                    {lead.aiAnalysis.leadQualityScore}
+                    {OPPORTUNITY_LABELS[lead.opportunityAnalysis.primaryOpportunity] || lead.opportunityAnalysis.primaryOpportunity}
                   </span>
+                ) : (
+                  lead.aiAnalysis?.status === 'completed' &&
+                  lead.aiAnalysis.worthContacting === true && (
+                    <span
+                      className="ml-2 inline-flex items-center text-[11px] font-medium px-1.5 py-0.5 rounded"
+                      style={{ background: 'rgba(61,86,232,0.25)', color: '#8fa0ff' }}
+                      title="AI found a defensible reason to contact this lead"
+                    >
+                      Angle found
+                    </span>
+                  )
                 )}
               </td>
               <td className="py-2.5 px-4">

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { TEMPLATE_KEYS } from '../constants/demoOptions.js';
+import { OPPORTUNITY_CATEGORIES, OPPORTUNITY_CONFIDENCE_LEVELS, DEMO_STRATEGIES } from '../constants/opportunityOptions.js';
 
 export const WEBSITE_STATUSES = [
   'none',
@@ -9,19 +10,88 @@ export const WEBSITE_STATUSES = [
   'broken',
   'unverified',
   'outdated',
+  // A real, functioning site that scored too weak to count as a genuine competitor to a new
+  // build (websiteAnalyzer.js: quality score 40-59) - distinct from `has_website` (>=60,
+  // confirmed solid, excluded outright) so the dashboard can actually show "existing but weak"
+  // as its own thing instead of it hiding inside a score number next to a generic label.
+  'weak_website',
   'has_website',
 ];
 
 const aiAnalysisSchema = new mongoose.Schema(
   {
     summary: { type: String, default: '' },
+    // Whether the AI found a defensible, non-fabricated reason to contact this business at all -
+    // null means "not yet analyzed" (see Lead.js's websiteStatus default-omission comment for
+    // why that distinction matters). false means the analysis deliberately found no strong
+    // angle rather than forcing one - routes/leads.js still lets a human override and generate
+    // outreach anyway (see [[project-leadforge-pipeline-issues]] / COLONBYTE brief section 27:
+    // Leadforge prepares, a human decides).
+    worthContacting: { type: Boolean, default: null },
     strengths: { type: [String], default: [] },
     weaknesses: { type: [String], default: [] },
+    // The single strongest, most specific, data-grounded outreach angle for this lead - deliberately
+    // singular (not another bullet list) so outreach generation has one concrete thing to build
+    // around instead of picking arbitrarily from a pile of suggestions. Empty when worthContacting
+    // is false.
+    opportunity: { type: String, default: '' },
     suggestions: { type: [String], default: [] },
-    estimatedLostCustomers: { type: String, default: '' },
-    leadQualityScore: { type: Number, default: null },
-    websiteOpportunityScore: { type: Number, default: null },
-    revenueOpportunityEstimate: { type: String, default: '' },
+    status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
+    analyzedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+// Heuristic evidence extracted from the same website HTML analyzeWebsite() already fetches for
+// scoring (services/websiteAnalyzer.js's detectWebsiteSignals) - persisted at scrape/recheck
+// time alongside websiteStatus so opportunityAnalysis.js can read it without re-fetching the
+// site on every /analyze call. These are detection signals, not proof of internal business
+// process - see opportunityAnalysis.js's system prompt for how that distinction is enforced.
+const websiteSignalsSchema = new mongoose.Schema(
+  {
+    hasBookingLanguage: { type: Boolean, default: false },
+    hasQuoteOrEnquiryForm: { type: Boolean, default: false },
+    hasFaqSection: { type: Boolean, default: false },
+    hasChatWidget: { type: Boolean, default: false },
+    hasMultipleLocationsLanguage: { type: Boolean, default: false },
+    hasMultiplePractitionersLanguage: { type: Boolean, default: false },
+    navLinkCount: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
+// The opportunity engine's output - see server/constants/opportunityOptions.js for the
+// controlled category enum and the category -> solution/demo-strategy mapping. Deliberately a
+// separate analysis pass from aiAnalysis (business quality/worthContacting) rather than folded
+// into it - see services/opportunityAnalysis.js for why. status/analyzedAt mirror
+// aiAnalysisSchema's pending/completed/failed pattern for the same reason (distinguishing "not
+// yet analyzed" from "analyzed, found nothing").
+const opportunityAnalysisSchema = new mongoose.Schema(
+  {
+    // No default (unlike most other fields here) - Mongoose applies a subdocument's field
+    // defaults on every save, even when the caller only meant to set `status`, and an empty
+    // string is not a valid enum member for either field. A default of '' here would make
+    // lead.save() throw a ValidationError on every write where opportunityAnalysis is only
+    // { status: 'failed' } (e.g. the Groq call hit a rate limit) - exactly the case that most
+    // needs to save cleanly. Leaving these undefined lets Mongoose's enum validator skip them
+    // entirely, matching the same "no default on an enum field" pattern websiteStatus uses above.
+    primaryOpportunity: { type: String, enum: OPPORTUNITY_CATEGORIES },
+    opportunityConfidence: { type: String, enum: OPPORTUNITY_CONFIDENCE_LEVELS },
+    // The specific, grounded facts the model pointed to - shown verbatim in the lead detail UI
+    // so a human can sanity-check the reasoning against real evidence rather than trusting a
+    // label alone.
+    evidence: { type: [String], default: [] },
+    reasoning: { type: String, default: '' },
+    // The natural, discovery-style question/observation outreach should open with (see brief
+    // section 14) - deliberately NOT a claim of fact. This is what the outreach generators
+    // consume as the primary angle, in place of aiAnalysis.opportunity.
+    outreachAngle: { type: String, default: '' },
+    // Human-readable label from OPPORTUNITY_SOLUTION_MAP, stored (not just derived) so the
+    // export CSV and any historical read of a lead reflects what the category meant at the time
+    // it was analyzed, even if the map's wording changes later.
+    solutionCategory: { type: String, default: '' },
+    secondaryOpportunities: { type: [String], enum: OPPORTUNITY_CATEGORIES, default: [] },
+    demoStrategy: { type: String, enum: DEMO_STRATEGIES, default: 'NO_DEMO' },
     status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
     analyzedAt: { type: Date, default: null },
   },
@@ -89,6 +159,30 @@ const whatsappOutreachSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Same shape/semantics as whatsappOutreachSchema - Instagram and Facebook have no API-driven
+// send path here (no official deep-link that pre-fills a DM the way wa.me does for WhatsApp),
+// so this only ever tracks a manual copy-and-paste-into-the-app workflow. 'opened' means the
+// operator clicked through to the profile after copying the message, not that it was sent.
+const instagramOutreachSchema = new mongoose.Schema(
+  {
+    message: { type: String, default: '' },
+    status: { type: String, enum: ['pending', 'drafted', 'opened', 'failed'], default: 'pending' },
+    generatedAt: { type: Date, default: null },
+    openedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+const facebookOutreachSchema = new mongoose.Schema(
+  {
+    message: { type: String, default: '' },
+    status: { type: String, enum: ['pending', 'drafted', 'opened', 'failed'], default: 'pending' },
+    generatedAt: { type: Date, default: null },
+    openedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
 // One follow-up slot per channel, gated on the parent message actually having gone out
 // (outreach.status === 'sent' / whatsappOutreach.status === 'opened') - a single nudge
 // covers the "manual follow-up" use case without building a full unbounded thread.
@@ -143,11 +237,18 @@ const leadSchema = new mongoose.Schema(
     // lead, permanently baking a fabricated "no website" verdict into real data.
     websiteStatus: { type: String, enum: WEBSITE_STATUSES },
     websiteQualityScore: { type: Number, default: 0 },
+    // No default object here either, mirroring websiteStatus above - absent means "this lead
+    // predates websiteAnalyzer.js's signal detection," distinguishable from a real analysis
+    // that found none of these signals present.
+    websiteSignals: { type: websiteSignalsSchema },
     highPriority: { type: Boolean, default: false },
     aiAnalysis: { type: aiAnalysisSchema, default: () => ({}) },
+    opportunityAnalysis: { type: opportunityAnalysisSchema, default: () => ({}) },
     demoSite: { type: demoSiteSchema, default: () => ({}) },
     outreach: { type: outreachSchema, default: () => ({}) },
     whatsappOutreach: { type: whatsappOutreachSchema, default: () => ({}) },
+    instagramOutreach: { type: instagramOutreachSchema, default: () => ({}) },
+    facebookOutreach: { type: facebookOutreachSchema, default: () => ({}) },
     outreachFollowUp: { type: followUpEmailSchema, default: () => ({}) },
     whatsappFollowUp: { type: followUpWhatsappSchema, default: () => ({}) },
     keyword: { type: String, required: true },
@@ -167,5 +268,6 @@ leadSchema.index({ highPriority: 1 });
 leadSchema.index({ rating: 1 });
 leadSchema.index({ 'aiAnalysis.status': 1 });
 leadSchema.index({ 'outreach.status': 1 });
+leadSchema.index({ 'opportunityAnalysis.primaryOpportunity': 1 });
 
 export default mongoose.model('Lead', leadSchema);

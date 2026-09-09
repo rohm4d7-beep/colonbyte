@@ -1,7 +1,20 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import WebsiteStatusBadge from './WebsiteStatusBadge';
-import API_BASE from '../config';
+import API_BASE, { apiFetch } from '../config';
+import { OPPORTUNITY_LABELS } from '../constants/opportunityLabels';
+
+const DEMO_STRATEGY_COPY = {
+  NO_DEMO: 'Not usually needed for this kind of opportunity.',
+  OFFER_DEMO: 'A website preview could help — generate one if useful.',
+  INCLUDE_DEMO: 'A website preview is a strong fit here.',
+};
+
+const CONFIDENCE_COLOR = {
+  high: 'var(--color-success, #22c55e)',
+  medium: 'var(--color-accent-2)',
+  low: 'var(--color-text-3)',
+};
 
 const TEMPLATE_NAMES = {
   warmLocal: 'Warm & Local',
@@ -56,6 +69,19 @@ function ScoreChip({ label, value, color }) {
   );
 }
 
+// The demo is deliberately never bundled into outreach automatically — held back and attached
+// only when the user explicitly opts in here (typically once there's already been a reply).
+// Hidden entirely when there's no completed demo to attach, so it never implies one exists.
+function DemoToggle({ checked, onChange, demoReady }) {
+  if (!demoReady) return null;
+  return (
+    <label className="flex items-center gap-1.5 text-[12px] text-text-3 cursor-pointer select-none">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      Include demo link
+    </label>
+  );
+}
+
 function BulletList({ items, color }) {
   if (!items || items.length === 0) return <p className="text-[12.5px] text-text-3">None noted.</p>;
   return (
@@ -70,15 +96,36 @@ function BulletList({ items, color }) {
   );
 }
 
-// Mirrors routes/leads.js's isOutreachEligible/notHighPriorityMessage — an 'unverified'
-// website (status simply unknown, likely bot-blocked our check) is allowed through same as a
-// confirmed poor/missing one; only a CONFIRMED solid website blocks outreach.
+// Mirrors routes/leads.js's isOutreachEligible/notOutreachEligibleMessage — once opportunity
+// analysis has run, a credible category (any except NO_STRONG_OPPORTUNITY) is what makes a
+// lead eligible, regardless of website condition. Leads not yet run through it fall back to
+// aiAnalysis.worthContacting — NEVER website condition, since a confirmed-good website no
+// longer disqualifies a lead (COLONBYTE sells AI/automation too, not just websites).
 function isOutreachEligible(lead) {
-  return !!lead.highPriority || lead.websiteStatus === 'unverified';
+  if (lead.opportunityAnalysis?.status === 'completed') {
+    return !!lead.opportunityAnalysis.primaryOpportunity && lead.opportunityAnalysis.primaryOpportunity !== 'NO_STRONG_OPPORTUNITY';
+  }
+  // Mirrors routes/leads.js — a FAILED opportunity analysis must never fall back to
+  // aiAnalysis.opportunity/suggestions, which are general business-quality notes, not a
+  // vetted outreach angle. Only a lead never run through the opportunity engine at all falls
+  // back to the legacy aiAnalysis-based gate.
+  if (lead.opportunityAnalysis?.status === 'failed') {
+    return false;
+  }
+  return lead.aiAnalysis?.status === 'completed' && lead.aiAnalysis?.worthContacting === true;
 }
 
-function notHighPriorityMessage() {
-  return 'This lead already has a solid website — outreach is only for leads without a confirmed solid site.';
+function notHighPriorityMessage(lead) {
+  if (lead?.opportunityAnalysis?.status === 'completed') {
+    return 'No credible opportunity was found for this business — outreach is only for leads with a defensible reason to contact them.';
+  }
+  if (lead?.opportunityAnalysis?.status === 'failed') {
+    return 'Opportunity analysis failed to complete — re-analyze this lead before drafting outreach.';
+  }
+  if (lead?.aiAnalysis?.status === 'completed') {
+    return 'AI analysis did not find a credible reason to contact this business.';
+  }
+  return 'Run AI analysis before drafting outreach.';
 }
 
 export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
@@ -91,23 +138,39 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const [templateChangeNotice, setTemplateChangeNotice] = useState(null);
   const [demoError, setDemoError] = useState(null);
   const [generatingOutreach, setGeneratingOutreach] = useState(false);
+  const [includeDemoInOutreach, setIncludeDemoInOutreach] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [sending, setSending] = useState(false);
   const [outreachError, setOutreachError] = useState(null);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [generatingWhatsapp, setGeneratingWhatsapp] = useState(false);
+  const [includeDemoInWhatsapp, setIncludeDemoInWhatsapp] = useState(false);
   const [savingWhatsappDraft, setSavingWhatsappDraft] = useState(false);
   const [whatsappError, setWhatsappError] = useState(null);
   const [whatsappMessage, setWhatsappMessage] = useState('');
   const [generatingFollowUpEmail, setGeneratingFollowUpEmail] = useState(false);
+  const [includeDemoInFollowUpEmail, setIncludeDemoInFollowUpEmail] = useState(false);
   const [sendingFollowUpEmail, setSendingFollowUpEmail] = useState(false);
   const [followUpEmailError, setFollowUpEmailError] = useState(null);
   const [followUpSubject, setFollowUpSubject] = useState('');
   const [followUpBody, setFollowUpBody] = useState('');
   const [generatingFollowUpWhatsapp, setGeneratingFollowUpWhatsapp] = useState(false);
+  const [includeDemoInFollowUpWhatsapp, setIncludeDemoInFollowUpWhatsapp] = useState(false);
   const [followUpWhatsappError, setFollowUpWhatsappError] = useState(null);
   const [followUpWhatsappMessage, setFollowUpWhatsappMessage] = useState('');
+  const [generatingInstagram, setGeneratingInstagram] = useState(false);
+  const [includeDemoInInstagram, setIncludeDemoInInstagram] = useState(false);
+  const [savingInstagramDraft, setSavingInstagramDraft] = useState(false);
+  const [instagramError, setInstagramError] = useState(null);
+  const [instagramMessage, setInstagramMessage] = useState('');
+  const [instagramCopied, setInstagramCopied] = useState(false);
+  const [generatingFacebook, setGeneratingFacebook] = useState(false);
+  const [includeDemoInFacebook, setIncludeDemoInFacebook] = useState(false);
+  const [savingFacebookDraft, setSavingFacebookDraft] = useState(false);
+  const [facebookError, setFacebookError] = useState(null);
+  const [facebookMessage, setFacebookMessage] = useState('');
+  const [facebookCopied, setFacebookCopied] = useState(false);
 
   useEffect(() => {
     setRecheckError(null);
@@ -135,12 +198,24 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     setWhatsappError(null);
   }, [lead?._id, lead?.whatsappOutreach?.generatedAt]);
 
+  useEffect(() => {
+    setInstagramMessage(lead?.instagramOutreach?.message || '');
+    setInstagramError(null);
+    setInstagramCopied(false);
+  }, [lead?._id, lead?.instagramOutreach?.generatedAt]);
+
+  useEffect(() => {
+    setFacebookMessage(lead?.facebookOutreach?.message || '');
+    setFacebookError(null);
+    setFacebookCopied(false);
+  }, [lead?._id, lead?.facebookOutreach?.generatedAt]);
+
   const handleAnalyze = async () => {
     if (!lead) return;
     setAnalyzing(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/analyze`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/analyze`, { method: 'POST' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Analysis failed.');
@@ -159,7 +234,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     setRechecking(true);
     setRecheckError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/recheck-website`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/recheck-website`, { method: 'POST' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Recheck failed.');
@@ -178,7 +253,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     setGeneratingDemo(true);
     setDemoError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/generate-demo`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/generate-demo`, { method: 'POST' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Demo generation failed.');
@@ -198,7 +273,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     setDemoError(null);
     setTemplateChangeNotice(null);
     try {
-      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/change-template`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/change-template`, { method: 'POST' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Template change failed.');
@@ -223,7 +298,11 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     setGeneratingOutreach(true);
     setOutreachError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/generate-outreach`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/generate-outreach`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ includeDemo: includeDemoInOutreach }),
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Draft generation failed.');
@@ -238,7 +317,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   };
 
   const saveDraft = async () => {
-    const res = await fetch(`${API_BASE}/api/leads/${lead._id}/outreach`, {
+    const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/outreach`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subject, body }),
@@ -271,7 +350,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     setOutreachError(null);
     try {
       await saveDraft();
-      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/send-outreach`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/send-outreach`, { method: 'POST' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Failed to send email.');
@@ -290,7 +369,11 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     setGeneratingWhatsapp(true);
     setWhatsappError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/generate-whatsapp`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/generate-whatsapp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ includeDemo: includeDemoInWhatsapp }),
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Draft generation failed.');
@@ -305,7 +388,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   };
 
   const saveWhatsappDraft = async () => {
-    const res = await fetch(`${API_BASE}/api/leads/${lead._id}/whatsapp`, {
+    const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/whatsapp`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: whatsappMessage }),
@@ -342,10 +425,145 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
       if (!digits) throw new Error('No usable phone number for this lead.');
       const url = `https://wa.me/${digits}?text=${encodeURIComponent(whatsappMessage)}`;
       window.open(url, '_blank', 'noopener,noreferrer');
-      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/whatsapp-opened`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/whatsapp-opened`, { method: 'POST' });
       if (res.ok) onUpdated?.(await res.json());
     } catch (err) {
       setWhatsappError(err.message || 'Could not open WhatsApp.');
+    }
+  };
+
+  const handleGenerateInstagram = async () => {
+    if (!lead) return;
+    setGeneratingInstagram(true);
+    setInstagramError(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/generate-instagram`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ includeDemo: includeDemoInInstagram }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Draft generation failed.');
+      }
+      const updated = await res.json();
+      onUpdated?.(updated);
+    } catch (err) {
+      setInstagramError(err.message || 'Draft generation failed.');
+    } finally {
+      setGeneratingInstagram(false);
+    }
+  };
+
+  const saveInstagramDraft = async () => {
+    const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/instagram`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: instagramMessage }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to save draft.');
+    }
+    return res.json();
+  };
+
+  const handleSaveInstagramDraft = async () => {
+    if (!lead) return;
+    setSavingInstagramDraft(true);
+    setInstagramError(null);
+    try {
+      const updated = await saveInstagramDraft();
+      onUpdated?.(updated);
+    } catch (err) {
+      setInstagramError(err.message || 'Failed to save draft.');
+    } finally {
+      setSavingInstagramDraft(false);
+    }
+  };
+
+  // Instagram has no official deep-link that pre-fills a DM the way wa.me does for WhatsApp -
+  // copy the draft to the clipboard, then open the profile so the operator can paste it in
+  // themselves, and record the click-through as "opened" once both succeed.
+  const handleCopyAndOpenInstagram = async () => {
+    if (!lead) return;
+    setInstagramError(null);
+    try {
+      await saveInstagramDraft();
+      await navigator.clipboard.writeText(instagramMessage);
+      setInstagramCopied(true);
+      setTimeout(() => setInstagramCopied(false), 4000);
+      window.open(lead.instagramUrl, '_blank', 'noopener,noreferrer');
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/instagram-opened`, { method: 'POST' });
+      if (res.ok) onUpdated?.(await res.json());
+    } catch (err) {
+      setInstagramError(err.message || 'Could not copy message or open Instagram.');
+    }
+  };
+
+  const handleGenerateFacebook = async () => {
+    if (!lead) return;
+    setGeneratingFacebook(true);
+    setFacebookError(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/generate-facebook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ includeDemo: includeDemoInFacebook }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Draft generation failed.');
+      }
+      const updated = await res.json();
+      onUpdated?.(updated);
+    } catch (err) {
+      setFacebookError(err.message || 'Draft generation failed.');
+    } finally {
+      setGeneratingFacebook(false);
+    }
+  };
+
+  const saveFacebookDraft = async () => {
+    const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/facebook`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: facebookMessage }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to save draft.');
+    }
+    return res.json();
+  };
+
+  const handleSaveFacebookDraft = async () => {
+    if (!lead) return;
+    setSavingFacebookDraft(true);
+    setFacebookError(null);
+    try {
+      const updated = await saveFacebookDraft();
+      onUpdated?.(updated);
+    } catch (err) {
+      setFacebookError(err.message || 'Failed to save draft.');
+    } finally {
+      setSavingFacebookDraft(false);
+    }
+  };
+
+  const handleCopyAndOpenFacebook = async () => {
+    if (!lead) return;
+    setFacebookError(null);
+    try {
+      await saveFacebookDraft();
+      await navigator.clipboard.writeText(facebookMessage);
+      setFacebookCopied(true);
+      setTimeout(() => setFacebookCopied(false), 4000);
+      window.open(lead.facebookUrl, '_blank', 'noopener,noreferrer');
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/facebook-opened`, { method: 'POST' });
+      if (res.ok) onUpdated?.(await res.json());
+    } catch (err) {
+      setFacebookError(err.message || 'Could not copy message or open Facebook.');
     }
   };
 
@@ -354,7 +572,11 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     setGeneratingFollowUpEmail(true);
     setFollowUpEmailError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/generate-followup-email`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/generate-followup-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ includeDemo: includeDemoInFollowUpEmail }),
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Follow-up draft generation failed.');
@@ -369,7 +591,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   };
 
   const saveFollowUpEmailDraft = async () => {
-    const res = await fetch(`${API_BASE}/api/leads/${lead._id}/followup-email`, {
+    const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/followup-email`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subject: followUpSubject, body: followUpBody }),
@@ -388,7 +610,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     setFollowUpEmailError(null);
     try {
       await saveFollowUpEmailDraft();
-      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/send-followup-email`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/send-followup-email`, { method: 'POST' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Failed to send follow-up.');
@@ -407,7 +629,11 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     setGeneratingFollowUpWhatsapp(true);
     setFollowUpWhatsappError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/generate-followup-whatsapp`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/generate-followup-whatsapp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ includeDemo: includeDemoInFollowUpWhatsapp }),
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Follow-up draft generation failed.');
@@ -422,7 +648,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   };
 
   const saveFollowUpWhatsappDraft = async () => {
-    const res = await fetch(`${API_BASE}/api/leads/${lead._id}/followup-whatsapp`, {
+    const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/followup-whatsapp`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: followUpWhatsappMessage }),
@@ -443,7 +669,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
       if (!digits) throw new Error('No usable phone number for this lead.');
       const url = `https://wa.me/${digits}?text=${encodeURIComponent(followUpWhatsappMessage)}`;
       window.open(url, '_blank', 'noopener,noreferrer');
-      const res = await fetch(`${API_BASE}/api/leads/${lead._id}/followup-whatsapp-opened`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/followup-whatsapp-opened`, { method: 'POST' });
       if (res.ok) onUpdated?.(await res.json());
     } catch (err) {
       setFollowUpWhatsappError(err.message || 'Could not open WhatsApp.');
@@ -452,11 +678,13 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
 
   const analysis = lead?.aiAnalysis;
   const analysisStatus = analysis?.status || 'pending';
+  const opportunity = lead?.opportunityAnalysis || {};
+  const opportunityStatus = opportunity?.status || 'pending';
   const demoSite = lead?.demoSite;
   const demoStatus = demoSite?.status || 'pending';
   const outreach = lead?.outreach;
   const outreachStatus = outreach?.status || 'pending';
-  const outreachReady = analysisStatus === 'completed' && demoStatus === 'completed' && isOutreachEligible(lead || {});
+  const outreachReady = analysisStatus === 'completed' && isOutreachEligible(lead || {});
   const whatsappOutreach = lead?.whatsappOutreach;
   const whatsappStatus = whatsappOutreach?.status || 'pending';
   const whatsappReady = outreachReady && !!lead?.phone;
@@ -464,6 +692,12 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const followUpEmailStatus = followUpEmail?.status || 'pending';
   const followUpWhatsapp = lead?.whatsappFollowUp;
   const followUpWhatsappStatus = followUpWhatsapp?.status || 'pending';
+  const instagramOutreach = lead?.instagramOutreach;
+  const instagramStatus = instagramOutreach?.status || 'pending';
+  const instagramReady = outreachReady && !!lead?.instagramUrl;
+  const facebookOutreach = lead?.facebookOutreach;
+  const facebookStatus = facebookOutreach?.status || 'pending';
+  const facebookReady = outreachReady && !!lead?.facebookUrl;
 
   return (
     <AnimatePresence>
@@ -609,12 +843,38 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
               <Section label="AI Business Report">
                 {analysisStatus === 'completed' ? (
                   <div className="space-y-4">
-                    <p className="text-[13px] text-text-2 leading-relaxed">{analysis.summary}</p>
-
-                    <div className="flex gap-2.5">
-                      <ScoreChip label="Lead Quality" value={analysis.leadQualityScore} color="var(--color-accent)" />
-                      <ScoreChip label="Site Opportunity" value={analysis.websiteOpportunityScore} color="var(--color-accent-2)" />
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-[13px] text-text-2 leading-relaxed">{analysis.summary}</p>
+                      {typeof analysis.worthContacting === 'boolean' && (
+                        <span
+                          className="shrink-0 text-[10.5px] font-medium uppercase tracking-wider px-2 py-1 rounded-full"
+                          style={
+                            analysis.worthContacting
+                              ? { background: 'rgba(34,197,94,0.15)', color: 'var(--color-success, #22c55e)' }
+                              : { background: 'var(--color-surface-2)', color: 'var(--color-text-3)' }
+                          }
+                        >
+                          {analysis.worthContacting ? 'Worth contacting' : 'No strong angle'}
+                        </span>
+                      )}
                     </div>
+
+                    {analysis.worthContacting === false ? (
+                      <p className="text-[12.5px] text-text-3 rounded-2xl p-3" style={{ background: 'var(--color-surface-2)' }}>
+                        No strong outreach angle found for this lead. You can still draft outreach manually if you
+                        know something the data doesn't show.
+                      </p>
+                    ) : analysis.opportunity ? (
+                      <div>
+                        <div className="text-[11px] font-medium uppercase tracking-wider text-text-3 mb-2">Primary Opportunity</div>
+                        <p
+                          className="text-[13px] text-text leading-relaxed rounded-2xl p-3"
+                          style={{ background: 'var(--color-surface-2)' }}
+                        >
+                          {analysis.opportunity}
+                        </p>
+                      </div>
+                    ) : null}
 
                     <div>
                       <div className="text-[11px] font-medium uppercase tracking-wider text-text-3 mb-2">Strengths</div>
@@ -627,17 +887,6 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                     <div>
                       <div className="text-[11px] font-medium uppercase tracking-wider text-text-3 mb-2">Suggestions</div>
                       <BulletList items={analysis.suggestions} color="var(--color-accent)" />
-                    </div>
-
-                    <div className="rounded-2xl p-3 space-y-1.5" style={{ background: 'var(--color-surface-2)' }}>
-                      <div className="flex justify-between text-[12.5px]">
-                        <span className="text-text-3">Est. lost customers</span>
-                        <span className="text-text text-right">{analysis.estimatedLostCustomers || '—'}</span>
-                      </div>
-                      <div className="flex justify-between text-[12.5px]">
-                        <span className="text-text-3">Revenue opportunity</span>
-                        <span className="text-text text-right">{analysis.revenueOpportunityEstimate || '—'}</span>
-                      </div>
                     </div>
 
                     <button
@@ -668,6 +917,75 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                   </div>
                 )}
               </Section>
+
+              {opportunityStatus === 'completed' && (
+                <Section label="Opportunity">
+                  {opportunity.primaryOpportunity && opportunity.primaryOpportunity !== 'NO_STRONG_OPPORTUNITY' ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[13px] font-medium text-text">
+                          {OPPORTUNITY_LABELS[opportunity.primaryOpportunity] || opportunity.primaryOpportunity}
+                        </p>
+                        {opportunity.opportunityConfidence && (
+                          <span
+                            className="shrink-0 text-[10.5px] font-medium uppercase tracking-wider px-2 py-1 rounded-full"
+                            style={{ background: 'var(--color-surface-2)', color: CONFIDENCE_COLOR[opportunity.opportunityConfidence] }}
+                          >
+                            {opportunity.opportunityConfidence} confidence
+                          </span>
+                        )}
+                      </div>
+
+                      {opportunity.reasoning && (
+                        <div>
+                          <div className="text-[11px] font-medium uppercase tracking-wider text-text-3 mb-2">Why</div>
+                          <p className="text-[13px] text-text-2 leading-relaxed">{opportunity.reasoning}</p>
+                        </div>
+                      )}
+
+                      <div>
+                        <div className="text-[11px] font-medium uppercase tracking-wider text-text-3 mb-2">Evidence</div>
+                        <BulletList items={opportunity.evidence} color="var(--color-accent)" />
+                      </div>
+
+                      {opportunity.outreachAngle && (
+                        <div>
+                          <div className="text-[11px] font-medium uppercase tracking-wider text-text-3 mb-2">Outreach Angle</div>
+                          <p
+                            className="text-[13px] text-text leading-relaxed rounded-2xl p-3"
+                            style={{ background: 'var(--color-surface-2)' }}
+                          >
+                            {opportunity.outreachAngle}
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="flex justify-between gap-3 text-[12.5px]">
+                        <span className="text-text-3">Solution</span>
+                        <span className="text-text text-right">{opportunity.solutionCategory || '—'}</span>
+                      </div>
+                      <div className="flex justify-between gap-3 text-[12.5px]">
+                        <span className="text-text-3">Demo</span>
+                        <span className="text-text-2 text-right">{DEMO_STRATEGY_COPY[opportunity.demoStrategy] || DEMO_STRATEGY_COPY.NO_DEMO}</span>
+                      </div>
+
+                      {opportunity.secondaryOpportunities?.length > 0 && (
+                        <div>
+                          <div className="text-[11px] font-medium uppercase tracking-wider text-text-3 mb-2">Also Considered</div>
+                          <p className="text-[12.5px] text-text-3">
+                            {opportunity.secondaryOpportunities.map((c) => OPPORTUNITY_LABELS[c] || c).join(', ')}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[12.5px] text-text-3 rounded-2xl p-3" style={{ background: 'var(--color-surface-2)' }}>
+                      No credible digital/AI/automation opportunity found for this business. You can still draft
+                      outreach manually if you know something the data doesn't show.
+                    </p>
+                  )}
+                </Section>
+              )}
 
               <Section label="Demo Website">
                 {demoStatus === 'completed' ? (
@@ -796,11 +1114,12 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                             >
                               {generatingFollowUpEmail ? 'Regenerating…' : 'Regenerate'}
                             </button>
+                            <DemoToggle checked={includeDemoInFollowUpEmail} onChange={setIncludeDemoInFollowUpEmail} demoReady={demoStatus === 'completed'} />
                           </div>
                           {followUpEmailError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{followUpEmailError}</p>}
                         </div>
                       ) : (
-                        <div className="pt-3">
+                        <div className="pt-3 space-y-1.5">
                           <button
                             onClick={handleGenerateFollowUpEmail}
                             disabled={generatingFollowUpEmail}
@@ -809,6 +1128,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                             {generatingFollowUpEmail && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
                             {generatingFollowUpEmail ? 'Drafting…' : followUpEmailStatus === 'failed' ? 'Retry Follow-up' : 'Draft Follow-up'}
                           </button>
+                          <DemoToggle checked={includeDemoInFollowUpEmail} onChange={setIncludeDemoInFollowUpEmail} demoReady={demoStatus === 'completed'} />
                           {followUpEmailError && <p className="text-[12px] mt-1.5" style={{ color: 'var(--color-danger)' }}>{followUpEmailError}</p>}
                         </div>
                       )}
@@ -818,7 +1138,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                   <div className="space-y-2.5">
                     {!isOutreachEligible(lead) && (
                       <p className="text-[12px] rounded-2xl p-2.5" style={{ color: 'var(--color-danger)', background: 'var(--color-surface-2)' }}>
-                        {notHighPriorityMessage()} Drafted before this restriction applied — sending is blocked.
+                        {notHighPriorityMessage(lead)} Drafted before this restriction applied — sending is blocked.
                       </p>
                     )}
                     <input
@@ -859,22 +1179,25 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                     {!lead.email && (
                       <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>This lead has no email address — cannot send.</p>
                     )}
-                    <button
-                      onClick={handleGenerateOutreach}
-                      disabled={generatingOutreach}
-                      className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
-                    >
-                      {generatingOutreach ? 'Regenerating…' : 'Regenerate Draft'}
-                    </button>
+                    <div className="flex items-center justify-between gap-3">
+                      <button
+                        onClick={handleGenerateOutreach}
+                        disabled={generatingOutreach}
+                        className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                      >
+                        {generatingOutreach ? 'Regenerating…' : 'Regenerate Draft'}
+                      </button>
+                      <DemoToggle checked={includeDemoInOutreach} onChange={setIncludeDemoInOutreach} demoReady={demoStatus === 'completed'} />
+                    </div>
                     {outreachError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{outreachError}</p>}
                   </div>
                 ) : (
                   <div className="rounded-2xl p-4 flex flex-col items-center gap-2.5 text-center" style={{ background: 'var(--color-surface-2)' }}>
                     <p className="text-[12.5px] text-text-3">
-                      {analysisStatus === 'completed' && demoStatus === 'completed' && !isOutreachEligible(lead)
-                        ? notHighPriorityMessage()
+                      {analysisStatus === 'completed' && !isOutreachEligible(lead)
+                        ? notHighPriorityMessage(lead)
                         : !outreachReady
-                        ? 'Complete AI analysis and demo generation first.'
+                        ? 'Complete AI analysis first.'
                         : outreachStatus === 'failed'
                         ? 'Draft generation failed — try again.'
                         : 'No outreach email drafted yet.'}
@@ -888,6 +1211,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                       {generatingOutreach && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
                       {generatingOutreach ? 'Drafting…' : outreachStatus === 'failed' ? 'Retry Draft' : 'Draft Outreach Email'}
                     </button>
+                    <DemoToggle checked={includeDemoInOutreach} onChange={setIncludeDemoInOutreach} demoReady={demoStatus === 'completed'} />
                     {outreachError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{outreachError}</p>}
                   </div>
                 )}
@@ -954,11 +1278,12 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                             >
                               {generatingFollowUpWhatsapp ? 'Regenerating…' : 'Regenerate'}
                             </button>
+                            <DemoToggle checked={includeDemoInFollowUpWhatsapp} onChange={setIncludeDemoInFollowUpWhatsapp} demoReady={demoStatus === 'completed'} />
                           </div>
                           {followUpWhatsappError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{followUpWhatsappError}</p>}
                         </div>
                       ) : (
-                        <div className="pt-3">
+                        <div className="pt-3 space-y-1.5">
                           <button
                             onClick={handleGenerateFollowUpWhatsapp}
                             disabled={generatingFollowUpWhatsapp}
@@ -967,6 +1292,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                             {generatingFollowUpWhatsapp && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
                             {generatingFollowUpWhatsapp ? 'Drafting…' : followUpWhatsappStatus === 'failed' ? 'Retry Follow-up' : 'Draft Follow-up'}
                           </button>
+                          <DemoToggle checked={includeDemoInFollowUpWhatsapp} onChange={setIncludeDemoInFollowUpWhatsapp} demoReady={demoStatus === 'completed'} />
                           {followUpWhatsappError && <p className="text-[12px] mt-1.5" style={{ color: 'var(--color-danger)' }}>{followUpWhatsappError}</p>}
                         </div>
                       )}
@@ -1005,13 +1331,16 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                         {savingWhatsappDraft ? 'Saving…' : 'Save Draft'}
                       </button>
                     </div>
-                    <button
-                      onClick={handleGenerateWhatsapp}
-                      disabled={generatingWhatsapp}
-                      className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
-                    >
-                      {generatingWhatsapp ? 'Regenerating…' : 'Regenerate Draft'}
-                    </button>
+                    <div className="flex items-center justify-between gap-3">
+                      <button
+                        onClick={handleGenerateWhatsapp}
+                        disabled={generatingWhatsapp}
+                        className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                      >
+                        {generatingWhatsapp ? 'Regenerating…' : 'Regenerate Draft'}
+                      </button>
+                      <DemoToggle checked={includeDemoInWhatsapp} onChange={setIncludeDemoInWhatsapp} demoReady={demoStatus === 'completed'} />
+                    </div>
                     {whatsappError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{whatsappError}</p>}
                   </div>
                 ) : (
@@ -1019,10 +1348,10 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                     <p className="text-[12.5px] text-text-3">
                       {!lead.phone
                         ? 'This lead has no phone number.'
-                        : analysisStatus === 'completed' && demoStatus === 'completed' && !isOutreachEligible(lead)
-                        ? notHighPriorityMessage()
+                        : analysisStatus === 'completed' && !isOutreachEligible(lead)
+                        ? notHighPriorityMessage(lead)
                         : !whatsappReady
-                        ? 'Complete AI analysis and demo generation first.'
+                        ? 'Complete AI analysis first.'
                         : whatsappStatus === 'failed'
                         ? 'Draft generation failed — try again.'
                         : 'No WhatsApp message drafted yet.'}
@@ -1036,7 +1365,188 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                       {generatingWhatsapp && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
                       {generatingWhatsapp ? 'Drafting…' : whatsappStatus === 'failed' ? 'Retry Draft' : 'Draft WhatsApp Message'}
                     </button>
+                    <DemoToggle checked={includeDemoInWhatsapp} onChange={setIncludeDemoInWhatsapp} demoReady={demoStatus === 'completed'} />
                     {whatsappError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{whatsappError}</p>}
+                  </div>
+                )}
+              </Section>
+
+              <Section label="Instagram Outreach">
+                {instagramStatus === 'opened' ? (
+                  <div className="space-y-3">
+                    <div className="rounded-2xl p-3" style={{ background: 'var(--color-surface-2)' }}>
+                      <p className="text-[12.5px] text-text-2 whitespace-pre-wrap leading-relaxed">{instagramOutreach.message}</p>
+                    </div>
+                    <p className="text-[11.5px] text-text-3">
+                      Copied and opened {instagramOutreach.openedAt ? new Date(instagramOutreach.openedAt).toLocaleString() : ''} — Instagram has no way to pre-fill or confirm a DM, so this only tracks that you copied the message and opened the profile.
+                    </p>
+                    <button
+                      onClick={handleCopyAndOpenInstagram}
+                      className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150"
+                    >
+                      {instagramCopied ? 'Copied!' : 'Copy again & open'}
+                    </button>
+                    {instagramError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{instagramError}</p>}
+                  </div>
+                ) : instagramStatus === 'drafted' ? (
+                  <div className="space-y-2.5">
+                    {!lead.instagramUrl && (
+                      <p className="text-[12px] rounded-2xl p-2.5" style={{ color: 'var(--color-danger)', background: 'var(--color-surface-2)' }}>
+                        This lead has no Instagram profile — cannot open it.
+                      </p>
+                    )}
+                    <textarea
+                      value={instagramMessage}
+                      onChange={(e) => setInstagramMessage(e.target.value)}
+                      maxLength={2000}
+                      rows={4}
+                      className="w-full px-2.5 py-2 rounded-xl text-[12.5px] text-text border resize-y leading-relaxed"
+                      style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
+                      placeholder="Message"
+                    />
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={handleCopyAndOpenInstagram}
+                        disabled={savingInstagramDraft || !instagramMessage.trim() || !lead.instagramUrl}
+                        className="flex-1 flex items-center justify-center h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
+                        style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
+                      >
+                        {instagramCopied ? 'Copied!' : 'Copy & Open Instagram'}
+                      </button>
+                      <button
+                        onClick={handleSaveInstagramDraft}
+                        disabled={savingInstagramDraft}
+                        className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                      >
+                        {savingInstagramDraft ? 'Saving…' : 'Save Draft'}
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <button
+                        onClick={handleGenerateInstagram}
+                        disabled={generatingInstagram}
+                        className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                      >
+                        {generatingInstagram ? 'Regenerating…' : 'Regenerate Draft'}
+                      </button>
+                      <DemoToggle checked={includeDemoInInstagram} onChange={setIncludeDemoInInstagram} demoReady={demoStatus === 'completed'} />
+                    </div>
+                    {instagramError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{instagramError}</p>}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl p-4 flex flex-col items-center gap-2.5 text-center" style={{ background: 'var(--color-surface-2)' }}>
+                    <p className="text-[12.5px] text-text-3">
+                      {!lead.instagramUrl
+                        ? 'This lead has no Instagram profile.'
+                        : analysisStatus === 'completed' && !isOutreachEligible(lead)
+                        ? notHighPriorityMessage(lead)
+                        : !instagramReady
+                        ? 'Complete AI analysis first.'
+                        : instagramStatus === 'failed'
+                        ? 'Draft generation failed — try again.'
+                        : 'No Instagram DM drafted yet.'}
+                    </p>
+                    <button
+                      onClick={handleGenerateInstagram}
+                      disabled={generatingInstagram || !instagramReady}
+                      className="flex items-center gap-1.5 h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
+                      style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
+                    >
+                      {generatingInstagram && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
+                      {generatingInstagram ? 'Drafting…' : instagramStatus === 'failed' ? 'Retry Draft' : 'Draft Instagram DM'}
+                    </button>
+                    <DemoToggle checked={includeDemoInInstagram} onChange={setIncludeDemoInInstagram} demoReady={demoStatus === 'completed'} />
+                    {instagramError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{instagramError}</p>}
+                  </div>
+                )}
+              </Section>
+
+              <Section label="Facebook Outreach">
+                {facebookStatus === 'opened' ? (
+                  <div className="space-y-3">
+                    <div className="rounded-2xl p-3" style={{ background: 'var(--color-surface-2)' }}>
+                      <p className="text-[12.5px] text-text-2 whitespace-pre-wrap leading-relaxed">{facebookOutreach.message}</p>
+                    </div>
+                    <p className="text-[11.5px] text-text-3">
+                      Copied and opened {facebookOutreach.openedAt ? new Date(facebookOutreach.openedAt).toLocaleString() : ''} — Facebook has no way to pre-fill or confirm a Messenger message, so this only tracks that you copied the message and opened the page.
+                    </p>
+                    <button
+                      onClick={handleCopyAndOpenFacebook}
+                      className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150"
+                    >
+                      {facebookCopied ? 'Copied!' : 'Copy again & open'}
+                    </button>
+                    {facebookError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{facebookError}</p>}
+                  </div>
+                ) : facebookStatus === 'drafted' ? (
+                  <div className="space-y-2.5">
+                    {!lead.facebookUrl && (
+                      <p className="text-[12px] rounded-2xl p-2.5" style={{ color: 'var(--color-danger)', background: 'var(--color-surface-2)' }}>
+                        This lead has no Facebook page — cannot open it.
+                      </p>
+                    )}
+                    <textarea
+                      value={facebookMessage}
+                      onChange={(e) => setFacebookMessage(e.target.value)}
+                      maxLength={2000}
+                      rows={5}
+                      className="w-full px-2.5 py-2 rounded-xl text-[12.5px] text-text border resize-y leading-relaxed"
+                      style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
+                      placeholder="Message"
+                    />
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={handleCopyAndOpenFacebook}
+                        disabled={savingFacebookDraft || !facebookMessage.trim() || !lead.facebookUrl}
+                        className="flex-1 flex items-center justify-center h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
+                        style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
+                      >
+                        {facebookCopied ? 'Copied!' : 'Copy & Open Facebook'}
+                      </button>
+                      <button
+                        onClick={handleSaveFacebookDraft}
+                        disabled={savingFacebookDraft}
+                        className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                      >
+                        {savingFacebookDraft ? 'Saving…' : 'Save Draft'}
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <button
+                        onClick={handleGenerateFacebook}
+                        disabled={generatingFacebook}
+                        className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                      >
+                        {generatingFacebook ? 'Regenerating…' : 'Regenerate Draft'}
+                      </button>
+                      <DemoToggle checked={includeDemoInFacebook} onChange={setIncludeDemoInFacebook} demoReady={demoStatus === 'completed'} />
+                    </div>
+                    {facebookError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{facebookError}</p>}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl p-4 flex flex-col items-center gap-2.5 text-center" style={{ background: 'var(--color-surface-2)' }}>
+                    <p className="text-[12.5px] text-text-3">
+                      {!lead.facebookUrl
+                        ? 'This lead has no Facebook page.'
+                        : analysisStatus === 'completed' && !isOutreachEligible(lead)
+                        ? notHighPriorityMessage(lead)
+                        : !facebookReady
+                        ? 'Complete AI analysis first.'
+                        : facebookStatus === 'failed'
+                        ? 'Draft generation failed — try again.'
+                        : 'No Facebook message drafted yet.'}
+                    </p>
+                    <button
+                      onClick={handleGenerateFacebook}
+                      disabled={generatingFacebook || !facebookReady}
+                      className="flex items-center gap-1.5 h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
+                      style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
+                    >
+                      {generatingFacebook && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
+                      {generatingFacebook ? 'Drafting…' : facebookStatus === 'failed' ? 'Retry Draft' : 'Draft Facebook Message'}
+                    </button>
+                    <DemoToggle checked={includeDemoInFacebook} onChange={setIncludeDemoInFacebook} demoReady={demoStatus === 'completed'} />
+                    {facebookError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{facebookError}</p>}
                   </div>
                 )}
               </Section>
