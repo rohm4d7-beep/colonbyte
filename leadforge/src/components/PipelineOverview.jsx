@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import GroqUsageWidget from './GroqUsageWidget';
 
 function CountUp({ value }) {
   const [display, setDisplay] = useState(0);
@@ -41,7 +42,7 @@ export default function PipelineOverview({ stats }) {
 
   return (
     <div
-      className="rounded-[28px] p-7 h-full"
+      className="rounded-[28px] p-7 h-full flex flex-col"
       style={{ background: 'var(--color-black)', color: '#ffffff' }}
     >
       <div className="flex items-start gap-12 mb-8">
@@ -92,6 +93,10 @@ export default function PipelineOverview({ stats }) {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="mt-auto pt-6">
+        <GroqUsageWidget />
       </div>
     </div>
   );

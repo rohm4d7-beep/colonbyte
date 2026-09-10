@@ -12,6 +12,7 @@ import leadsRoutes from './routes/leads.js';
 import demoRoutes from './routes/demo.js';
 import webhookRoutes from './routes/webhooks.js';
 import authRoutes from './routes/auth.js';
+import groqUsageRoutes from './routes/groqUsage.js';
 import { requireAuth } from './middleware/requireAuth.js';
 import Lead from './models/Lead.js';
 
@@ -108,6 +109,7 @@ app.use('/api/auth', authRoutes);
 // prospects in outreach emails, who never log in.
 app.use('/api/scrape', requireAuth, scrapeRoutes);
 app.use('/api/leads', requireAuth, leadsRoutes);
+app.use('/api/groq-usage', requireAuth, groqUsageRoutes);
 app.use('/demo', demoRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));

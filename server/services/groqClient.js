@@ -1,3 +1,5 @@
+import { registerKeyCount, recordSuccess, recordDailyCapHit } from './groqUsageTracker.js';
+
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 // GROQ_API_KEY, then GROQ_API_KEY_2, GROQ_API_KEY_3, GROQ_API_KEY_4, ... — any number of keys,
@@ -16,6 +18,7 @@ function loadKeys() {
   return keys;
 }
 const KEYS = loadKeys();
+registerKeyCount(KEYS.length);
 
 // Reads Groq's own suggested wait time off a 429 response — the `retry-after` header first,
 // falling back to parsing "...try again in 27.1875s..." out of the error body (Groq's TPM-limit
@@ -42,13 +45,34 @@ async function getRetryDelayMs(res, fallbackMs) {
 // genuinely spent, Groq's own suggested wait is typically 10-25+ minutes). Retrying a TPD
 // exhaustion on a few-second timer is pure wasted latency: it will fail identically every time
 // until the daily window rolls over, so it isn't worth a short wait at all.
-async function isDailyLimitError(res) {
+//
+// When it IS a daily-cap error, this also pulls the exact "Limit 200000, Used 199553" numbers
+// and the "try again in Xm Y.Zs" wait out of the message — Groq's only source of truth for how
+// much of a key's daily budget is actually gone, since there's no endpoint to just ask. Feeds
+// groqUsageTracker so the dashboard has real numbers instead of a guess.
+async function parseDailyCapError(res) {
+  let text;
   try {
-    const text = await res.clone().text();
-    return /tokens per day|\(TPD\)/i.test(text);
+    text = await res.clone().text();
   } catch {
-    return false;
+    return null;
   }
+  if (!/tokens per day|\(TPD\)/i.test(text)) return null;
+
+  const usageMatch = text.match(/Limit (\d+), Used (\d+)/i);
+  // Minutes are optional here — Groq writes both "try again in 27.18s" (short waits) and
+  // "try again in 20m40.7s" (typical for a genuinely spent daily budget).
+  const waitMatch = text.match(/try again in (?:(\d+)m)?([\d.]+)s/i);
+
+  const retryAfterMs = waitMatch
+    ? (waitMatch[1] ? parseInt(waitMatch[1], 10) * 60000 : 0) + parseFloat(waitMatch[2]) * 1000
+    : null;
+
+  return {
+    limit: usageMatch ? parseInt(usageMatch[1], 10) : null,
+    used: usageMatch ? parseInt(usageMatch[2], 10) : null,
+    retryAfterMs,
+  };
 }
 
 /**
@@ -77,6 +101,7 @@ export async function groqFetch(body, { timeoutMs = 30000, maxRetryRounds = 2 } 
 
   for (let round = 0; round <= maxRetryRounds; round++) {
     let lastRes = null;
+    let lastWasDailyCap = false;
     for (let i = 0; i < KEYS.length; i++) {
       const res = await fetch(GROQ_API_URL, {
         method: 'POST',
@@ -87,14 +112,25 @@ export async function groqFetch(body, { timeoutMs = 30000, maxRetryRounds = 2 } 
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(timeoutMs),
       });
-      if (res.status !== 429) return res;
+      if (res.status !== 429) {
+        try {
+          const usage = (await res.clone().json())?.usage?.total_tokens;
+          recordSuccess(i + 1, usage);
+        } catch {
+          recordSuccess(i + 1);
+        }
+        return res;
+      }
+      const dailyCap = await parseDailyCapError(res);
+      if (dailyCap) recordDailyCapHit(i + 1, dailyCap);
       if (i < KEYS.length - 1) {
         console.warn(`[groqClient] Key ${i + 1}/${KEYS.length} rate-limited (429) — failing over to the next key.`);
       }
       lastRes = res;
+      lastWasDailyCap = Boolean(dailyCap);
     }
 
-    if (round < maxRetryRounds && !(await isDailyLimitError(lastRes))) {
+    if (round < maxRetryRounds && !lastWasDailyCap) {
       const delay = await getRetryDelayMs(lastRes, 3000 * (round + 1));
       console.warn(
         `[groqClient] All ${KEYS.length} keys rate-limited — waiting ${Math.round(delay)}ms before retrying (attempt ${round + 2}/${maxRetryRounds + 1}).`
