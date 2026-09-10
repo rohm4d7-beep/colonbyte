@@ -46,7 +46,9 @@ const SYSTEM_PROMPT =
   'have NO evidence it is bad. NEVER call it broken, outdated, or lacking anything. If you mention it at ' +
   'all, say only that it did not load for us when we looked - and only pair that with the preview if ' +
   'you\'re in MODE B.\n\n' +
-  'Hard bans - never use any of them: em dashes anywhere; "visual credibility", "strengthen trust", ' +
+  'Hard bans - never use any of them: em dashes, en dashes, or non-breaking hyphens anywhere - use a ' +
+  'plain ASCII hyphen (-) for any compound word (e.g. "follow-up"), never a special dash character; ' +
+  '"visual credibility", "strengthen trust", ' +
   '"elevate", "seamless", "unlock", "showcase", "in today\'s digital age", "we noticed that", "we hope this ' +
   'finds you well", "Feel free to", "at your convenience", "No pressure", "streamline"; restating the ' +
   'demo\'s own tagline; "Dear", a subject line, or any formal closer ("Best regards", "Sincerely").\n\n' +
@@ -64,6 +66,33 @@ const SYSTEM_PROMPT =
   'If demoUrl is present in the facts (MODE B), the message MUST include that exact URL, unaltered. If ' +
   'demoUrl is absent (MODE A), the message must contain no link of any kind. Never restate the aiSummary ' +
   'field as a sentence; read it for facts and write your own words.';
+
+const FOLLOWUP_SYSTEM_PROMPT =
+  'You are writing on behalf of the same small website agency team, sending a short Instagram DM ' +
+  'follow-up, since the business hasn\'t replied to the first message yet. Write in first person PLURAL ' +
+  'throughout - "we"/"our"/"us", never "I"/"my"/"me" - matching the "The Colonbyte Team" sign-off. You ' +
+  'will be given the ORIGINAL DM already sent as context - do not repeat its content or re-explain the ' +
+  'demo from scratch, they already read it.\n\n' +
+  'The facts include a demoUrl only when a demo has been prepared AND the sender has chosen to attach it ' +
+  'to THIS message - most follow-ups will NOT have one.\n\n' +
+  'If demoUrl is absent: a brief, casual, low-pressure nudge with no demo to mention - "still around if ' +
+  'you want to chat" or a small new angle if the facts genuinely support one. Do not invent or imply a ' +
+  'demo exists. 10-20 words.\n\n' +
+  'If demoUrl is present: same casual, low-pressure nudge, but now with something to point to - "put ' +
+  'together a quick preview, still around if you want to take a look" plus the link (they may not have ' +
+  'clicked it). 15-25 words.\n\n' +
+  'Hard bans: "just checking in", "following up", "circling back", "bumping this", "any update?", em ' +
+  'dashes, en dashes, or non-breaking hyphens anywhere (use a plain ASCII hyphen for compound words), ' +
+  'guilt-tripping or pressure language, restating the demo\'s tagline, any formal email opener/closer. No ' +
+  'ALL CAPS, at most one emoji only if natural.\n\n' +
+  'If websiteStatus is "unverified": their site did not load for our check (likely bot protection) - we ' +
+  'have NO evidence it is bad or needs "verifying" in any SEO/Google-listing sense. NEVER frame it as ' +
+  'something wrong with their site. If you mention it at all, say only that it still would not load for ' +
+  'you, nothing more.\n\n' +
+  'If demoUrl is present in the facts, the message MUST include that exact URL, unaltered. If demoUrl is ' +
+  'absent, the message must contain no link of any kind. After the message, on its own new line with ' +
+  'nothing after it, sign off with exactly "The Colonbyte Team" - no "regards"/"best"/dash before it, no ' +
+  'period after it.';
 
 function buildFacts(lead, { includeDemo = false } = {}) {
   const demoCompleted = lead.demoSite?.status === 'completed';
@@ -112,20 +141,27 @@ async function callGroqForMessage(systemPrompt, userPrompt) {
     if (!content) return null;
 
     const parsed = JSON.parse(content);
-    return { message: ensureSignOff(stripEmDashes(parsed.message || '')) };
+    return { message: ensureSignOff(normalizeDashes(parsed.message || '')) };
   } catch (err) {
     console.error('[instagramOutreachGenerator] Groq call failed:', err.message);
     return null;
   }
 }
 
-function stripEmDashes(text) {
-  return text.replace(/\s*—\s*/g, ' - ');
+function normalizeDashes(text) {
+  return text
+    .replace(/\s*[—–]\s*/g, ' - ')
+    .replace(/‑/g, '-');
 }
 
+// The model's spacing before the sign-off varies (crammed onto the same line, a single
+// newline, or a proper blank line) whenever it includes one itself - strip whatever it added
+// and reapply with consistent spacing, rather than only filling in a sign-off that's fully
+// absent and trusting the model's spacing otherwise.
 function ensureSignOff(message) {
-  if (!message || /the colonbyte team\s*$/i.test(message.trim())) return message;
-  return `${message.trim()}\nThe Colonbyte Team`;
+  if (!message) return message;
+  const withoutSignOff = message.replace(/\s*the colonbyte team\s*$/i, '').trim();
+  return `${withoutSignOff}\n\nThe Colonbyte Team`;
 }
 
 /**
@@ -136,6 +172,20 @@ function ensureSignOff(message) {
 export async function generateInstagramOutreach(lead, { includeDemo = false } = {}) {
   const userPrompt = `Draft an Instagram DM for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}`;
   const result = await callGroqForMessage(SYSTEM_PROMPT, userPrompt);
+  if (!result) return { status: 'failed' };
+  return { ...result, status: 'drafted', generatedAt: new Date() };
+}
+
+/**
+ * Requires lead.instagramOutreach.status === 'opened' (routes/leads.js enforces this) - the
+ * follow-up references the original message as context so it doesn't repeat the pitch.
+ * includeDemo is the same manual per-call choice as generateInstagramOutreach.
+ */
+export async function generateFollowUpInstagram(lead, { includeDemo = false } = {}) {
+  const userPrompt =
+    `The ORIGINAL Instagram DM already sent:\n${JSON.stringify({ message: lead.instagramOutreach.message }, null, 2)}\n\n` +
+    `Draft a brief Instagram DM follow-up for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}`;
+  const result = await callGroqForMessage(FOLLOWUP_SYSTEM_PROMPT, userPrompt);
   if (!result) return { status: 'failed' };
   return { ...result, status: 'drafted', generatedAt: new Date() };
 }

@@ -165,6 +165,12 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const [instagramError, setInstagramError] = useState(null);
   const [instagramMessage, setInstagramMessage] = useState('');
   const [instagramCopied, setInstagramCopied] = useState(false);
+  const [generatingFollowUpInstagram, setGeneratingFollowUpInstagram] = useState(false);
+  const [includeDemoInFollowUpInstagram, setIncludeDemoInFollowUpInstagram] = useState(false);
+  const [savingFollowUpInstagramDraft, setSavingFollowUpInstagramDraft] = useState(false);
+  const [followUpInstagramError, setFollowUpInstagramError] = useState(null);
+  const [followUpInstagramMessage, setFollowUpInstagramMessage] = useState('');
+  const [followUpInstagramCopied, setFollowUpInstagramCopied] = useState(false);
   const [generatingFacebook, setGeneratingFacebook] = useState(false);
   const [includeDemoInFacebook, setIncludeDemoInFacebook] = useState(false);
   const [savingFacebookDraft, setSavingFacebookDraft] = useState(false);
@@ -203,6 +209,12 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     setInstagramError(null);
     setInstagramCopied(false);
   }, [lead?._id, lead?.instagramOutreach?.generatedAt]);
+
+  useEffect(() => {
+    setFollowUpInstagramMessage(lead?.instagramFollowUp?.message || '');
+    setFollowUpInstagramError(null);
+    setFollowUpInstagramCopied(false);
+  }, [lead?._id, lead?.instagramFollowUp?.generatedAt]);
 
   useEffect(() => {
     setFacebookMessage(lead?.facebookOutreach?.message || '');
@@ -501,6 +513,74 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     }
   };
 
+  const handleGenerateFollowUpInstagram = async () => {
+    if (!lead) return;
+    setGeneratingFollowUpInstagram(true);
+    setFollowUpInstagramError(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/generate-followup-instagram`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ includeDemo: includeDemoInFollowUpInstagram }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Follow-up draft generation failed.');
+      }
+      const updated = await res.json();
+      onUpdated?.(updated);
+    } catch (err) {
+      setFollowUpInstagramError(err.message || 'Follow-up draft generation failed.');
+    } finally {
+      setGeneratingFollowUpInstagram(false);
+    }
+  };
+
+  const saveFollowUpInstagramDraft = async () => {
+    const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/followup-instagram`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: followUpInstagramMessage }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to save draft.');
+    }
+    return res.json();
+  };
+
+  const handleSaveFollowUpInstagramDraft = async () => {
+    if (!lead) return;
+    setSavingFollowUpInstagramDraft(true);
+    setFollowUpInstagramError(null);
+    try {
+      const updated = await saveFollowUpInstagramDraft();
+      onUpdated?.(updated);
+    } catch (err) {
+      setFollowUpInstagramError(err.message || 'Failed to save draft.');
+    } finally {
+      setSavingFollowUpInstagramDraft(false);
+    }
+  };
+
+  // Same no-deep-link limitation as the original Instagram message (see handleCopyAndOpenInstagram) -
+  // copy the follow-up to the clipboard, open the profile, and record the click-through.
+  const handleCopyAndOpenFollowUpInstagram = async () => {
+    if (!lead) return;
+    setFollowUpInstagramError(null);
+    try {
+      await saveFollowUpInstagramDraft();
+      await navigator.clipboard.writeText(followUpInstagramMessage);
+      setFollowUpInstagramCopied(true);
+      setTimeout(() => setFollowUpInstagramCopied(false), 4000);
+      window.open(lead.instagramUrl, '_blank', 'noopener,noreferrer');
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/followup-instagram-opened`, { method: 'POST' });
+      if (res.ok) onUpdated?.(await res.json());
+    } catch (err) {
+      setFollowUpInstagramError(err.message || 'Could not copy message or open Instagram.');
+    }
+  };
+
   const handleGenerateFacebook = async () => {
     if (!lead) return;
     setGeneratingFacebook(true);
@@ -695,6 +775,8 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const instagramOutreach = lead?.instagramOutreach;
   const instagramStatus = instagramOutreach?.status || 'pending';
   const instagramReady = outreachReady && !!lead?.instagramUrl;
+  const followUpInstagram = lead?.instagramFollowUp;
+  const followUpInstagramStatus = followUpInstagram?.status || 'pending';
   const facebookOutreach = lead?.facebookOutreach;
   const facebookStatus = facebookOutreach?.status || 'pending';
   const facebookReady = outreachReady && !!lead?.facebookUrl;
@@ -1387,6 +1469,80 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                       {instagramCopied ? 'Copied!' : 'Copy again & open'}
                     </button>
                     {instagramError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{instagramError}</p>}
+
+                    <div className="pt-2 border-t" style={{ borderColor: 'var(--color-border)' }}>
+                      {followUpInstagramStatus === 'opened' ? (
+                        <div className="space-y-2 pt-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wider text-text-3">Follow-up</p>
+                          <div className="rounded-2xl p-3" style={{ background: 'var(--color-surface-2)' }}>
+                            <p className="text-[12.5px] text-text-2 whitespace-pre-wrap leading-relaxed">{followUpInstagram.message}</p>
+                          </div>
+                          <p className="text-[11.5px] text-text-3">
+                            Copied and opened {followUpInstagram.openedAt ? new Date(followUpInstagram.openedAt).toLocaleString() : ''}
+                          </p>
+                          <button
+                            onClick={handleCopyAndOpenFollowUpInstagram}
+                            className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150"
+                          >
+                            {followUpInstagramCopied ? 'Copied!' : 'Copy again & open'}
+                          </button>
+                        </div>
+                      ) : followUpInstagramStatus === 'drafted' ? (
+                        <div className="space-y-2 pt-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wider text-text-3">Follow-up</p>
+                          <textarea
+                            value={followUpInstagramMessage}
+                            onChange={(e) => setFollowUpInstagramMessage(e.target.value)}
+                            maxLength={2000}
+                            rows={4}
+                            className="w-full px-2.5 py-2 rounded-xl text-[12.5px] text-text border resize-y leading-relaxed"
+                            style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
+                            placeholder="Message"
+                          />
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={handleCopyAndOpenFollowUpInstagram}
+                              disabled={savingFollowUpInstagramDraft || !followUpInstagramMessage.trim()}
+                              className="flex-1 flex items-center justify-center h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
+                              style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
+                            >
+                              {followUpInstagramCopied ? 'Copied!' : 'Copy Follow-up & Open'}
+                            </button>
+                            <button
+                              onClick={handleSaveFollowUpInstagramDraft}
+                              disabled={savingFollowUpInstagramDraft}
+                              className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                            >
+                              {savingFollowUpInstagramDraft ? 'Saving…' : 'Save Draft'}
+                            </button>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <button
+                              onClick={handleGenerateFollowUpInstagram}
+                              disabled={generatingFollowUpInstagram}
+                              className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                            >
+                              {generatingFollowUpInstagram ? 'Regenerating…' : 'Regenerate'}
+                            </button>
+                            <DemoToggle checked={includeDemoInFollowUpInstagram} onChange={setIncludeDemoInFollowUpInstagram} demoReady={demoStatus === 'completed'} />
+                          </div>
+                          {followUpInstagramError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{followUpInstagramError}</p>}
+                        </div>
+                      ) : (
+                        <div className="pt-3 space-y-1.5">
+                          <button
+                            onClick={handleGenerateFollowUpInstagram}
+                            disabled={generatingFollowUpInstagram}
+                            className="flex items-center gap-1.5 h-8 px-3.5 rounded-full text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                          >
+                            {generatingFollowUpInstagram && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
+                            {generatingFollowUpInstagram ? 'Drafting…' : followUpInstagramStatus === 'failed' ? 'Retry Follow-up' : 'Draft Follow-up'}
+                          </button>
+                          <DemoToggle checked={includeDemoInFollowUpInstagram} onChange={setIncludeDemoInFollowUpInstagram} demoReady={demoStatus === 'completed'} />
+                          {followUpInstagramError && <p className="text-[12px] mt-1.5" style={{ color: 'var(--color-danger)' }}>{followUpInstagramError}</p>}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : instagramStatus === 'drafted' ? (
                   <div className="space-y-2.5">

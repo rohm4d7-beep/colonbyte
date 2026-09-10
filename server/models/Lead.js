@@ -208,6 +208,19 @@ const followUpWhatsappSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Same shape/semantics as followUpWhatsappSchema - Instagram has no API-driven send path
+// (instagramOutreachSchema above), so a follow-up is the same manual copy-and-paste-into-the-app
+// workflow as the original message, gated on the original having actually been opened.
+const followUpInstagramSchema = new mongoose.Schema(
+  {
+    message: { type: String, default: '' },
+    status: { type: String, enum: ['pending', 'drafted', 'opened', 'failed'], default: 'pending' },
+    generatedAt: { type: Date, default: null },
+    openedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
 const leadSchema = new mongoose.Schema(
   {
     businessName: { type: String, required: true },
@@ -251,6 +264,7 @@ const leadSchema = new mongoose.Schema(
     facebookOutreach: { type: facebookOutreachSchema, default: () => ({}) },
     outreachFollowUp: { type: followUpEmailSchema, default: () => ({}) },
     whatsappFollowUp: { type: followUpWhatsappSchema, default: () => ({}) },
+    instagramFollowUp: { type: followUpInstagramSchema, default: () => ({}) },
     keyword: { type: String, required: true },
     status: { type: String, enum: ['new', 'contacted', 'converted'], default: 'new' },
   },

@@ -46,7 +46,9 @@ const SYSTEM_PROMPT =
   'have NO evidence it is bad. NEVER call it broken, outdated, or lacking anything. If you mention it at ' +
   'all, say only that it did not load for us when we looked - and only pair that with the preview if ' +
   'you\'re in MODE B.\n\n' +
-  'Hard bans - never use any of them: em dashes anywhere; "visual credibility", "strengthen trust", ' +
+  'Hard bans - never use any of them: em dashes, en dashes, or non-breaking hyphens anywhere - use a ' +
+  'plain ASCII hyphen (-) for any compound word (e.g. "follow-up"), never a special dash character; ' +
+  '"visual credibility", "strengthen trust", ' +
   '"elevate", "seamless", "unlock", "showcase", "in today\'s digital age", "we noticed that", "we hope this ' +
   'finds you well", "Feel free to", "at your convenience", "No pressure", "streamline"; restating the ' +
   'demo\'s own tagline; "Dear", a subject line, or any formal closer ("Best regards", "Sincerely").\n\n' +
@@ -113,20 +115,27 @@ async function callGroqForMessage(systemPrompt, userPrompt) {
     if (!content) return null;
 
     const parsed = JSON.parse(content);
-    return { message: ensureSignOff(stripEmDashes(parsed.message || '')) };
+    return { message: ensureSignOff(normalizeDashes(parsed.message || '')) };
   } catch (err) {
     console.error('[facebookOutreachGenerator] Groq call failed:', err.message);
     return null;
   }
 }
 
-function stripEmDashes(text) {
-  return text.replace(/\s*—\s*/g, ' - ');
+function normalizeDashes(text) {
+  return text
+    .replace(/\s*[—–]\s*/g, ' - ')
+    .replace(/‑/g, '-');
 }
 
+// The model's spacing before the sign-off varies (crammed onto the same line, a single
+// newline, or a proper blank line) whenever it includes one itself - strip whatever it added
+// and reapply with consistent spacing, rather than only filling in a sign-off that's fully
+// absent and trusting the model's spacing otherwise.
 function ensureSignOff(message) {
-  if (!message || /the colonbyte team\s*$/i.test(message.trim())) return message;
-  return `${message.trim()}\nThe Colonbyte Team`;
+  if (!message) return message;
+  const withoutSignOff = message.replace(/\s*the colonbyte team\s*$/i, '').trim();
+  return `${withoutSignOff}\n\nThe Colonbyte Team`;
 }
 
 /**

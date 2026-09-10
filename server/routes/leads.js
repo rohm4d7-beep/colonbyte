@@ -8,7 +8,7 @@ import { analyzeOpportunity, noOpportunity } from '../services/opportunityAnalys
 import { generateDemoContent } from '../services/demoContentGenerator.js';
 import { generateOutreach, generateFollowUpEmail } from '../services/outreachGenerator.js';
 import { generateWhatsappOutreach, generateFollowUpWhatsapp } from '../services/whatsappOutreachGenerator.js';
-import { generateInstagramOutreach } from '../services/instagramOutreachGenerator.js';
+import { generateInstagramOutreach, generateFollowUpInstagram } from '../services/instagramOutreachGenerator.js';
 import { generateFacebookOutreach } from '../services/facebookOutreachGenerator.js';
 import { sendOutreachEmail } from '../services/emailSender.js';
 import { analyzeWebsite } from '../services/websiteAnalyzer.js';
@@ -491,6 +491,50 @@ router.post('/:id/instagram-opened', asyncHandler(async (req, res) => {
   res.json(lead);
 }));
 
+router.post('/:id/generate-followup-instagram', analyzeLimiter, asyncHandler(async (req, res) => {
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (lead.instagramOutreach?.status !== 'opened') {
+    return res.status(409).json({ error: 'Open the first Instagram DM before drafting a follow-up.' });
+  }
+
+  const includeDemo = req.body?.includeDemo === true;
+  const followUp = await generateFollowUpInstagram(lead, { includeDemo });
+  lead.instagramFollowUp = { ...lead.instagramFollowUp.toObject(), ...followUp };
+  await lead.save();
+
+  res.json(lead);
+}));
+
+router.patch('/:id/followup-instagram', asyncHandler(async (req, res) => {
+  const { message } = req.body || {};
+  if (typeof message !== 'string' || !message.trim() || message.length > 2000) {
+    return res.status(400).json({ error: 'Message is required (max 2000 characters).' });
+  }
+
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+
+  lead.instagramFollowUp.message = message.trim();
+  if (lead.instagramFollowUp.status === 'pending' || lead.instagramFollowUp.status === 'failed') {
+    lead.instagramFollowUp.status = 'drafted';
+  }
+  await lead.save();
+
+  res.json(lead);
+}));
+
+router.post('/:id/followup-instagram-opened', asyncHandler(async (req, res) => {
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+
+  lead.instagramFollowUp.status = 'opened';
+  lead.instagramFollowUp.openedAt = new Date();
+  await lead.save();
+
+  res.json(lead);
+}));
+
 router.post('/:id/generate-facebook', analyzeLimiter, asyncHandler(async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
@@ -543,7 +587,7 @@ router.post('/:id/facebook-opened', asyncHandler(async (req, res) => {
 
 const sendLimiter = rateLimit({
   windowMs: 10 * 60_000,
-  limit: 15,
+  limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many send requests. Please wait before trying again.' },

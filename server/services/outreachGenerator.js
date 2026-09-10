@@ -56,7 +56,9 @@ const SYSTEM_PROMPT =
   'specific features you\'d add, since none of those are agreed yet, and don\'t undersell the preview ' +
   'either.\n\n' +
   'Hard bans, because these are the exact tells of AI-written outreach — never use any of them: ' +
-  'em dashes (—) anywhere, including the sign-off; the words/phrases "visual credibility", "strengthen ' +
+  'em dashes (—), en dashes (–), or non-breaking hyphens anywhere, including the sign-off - use a plain ' +
+  'ASCII hyphen (-) for any compound word (e.g. "follow-up", "non-existent"), never a special dash ' +
+  'character; the words/phrases "visual credibility", "strengthen ' +
   'trust", "tailor the layout to match your brand", "elevate", "seamless", "unlock", "showcase", "in ' +
   'today\'s digital age", "we noticed that", "we hope this finds you well", "Feel free to", "at your ' +
   'convenience", "No pressure", "just reply or book a quick call", "streamline"; any sentence that ' +
@@ -69,8 +71,14 @@ const SYSTEM_PROMPT =
   'Instead: 60-120 words total, one clear idea, sentences of different lengths (some short, some longer — ' +
   'not uniform), contractions are fine (we\'d, you\'re, it\'s). Open with the single most concrete, specific ' +
   'thing from the facts given — not a generic compliment. In MODE B, state plainly what we built (a ' +
-  'preview site) and drop the link; in MODE A, skip straight to the observation. Close with one plain, ' +
-  'direct question or ask — no boilerplate softener sentence about pressure. No subject line clickbait, no ' +
+  'preview site) and drop the link; in MODE A, skip straight to the observation. Vary the SENTENCE SHAPE ' +
+  'itself from email to email, not just the facts plugged into it - these go to different businesses, and ' +
+  'reusing the same scaffold every time ("[observation] - [why it matters]. How do you currently handle ' +
+  '[X]?") is exactly what makes a business unable to tell this was actually written about THEM rather than ' +
+  'mail-merged. Vary where the observation lands in the email, how the reasoning connects to it (a new ' +
+  'sentence, not always a dash-linked clause), and the closing question\'s phrasing and structure each time. ' +
+  'Close with one plain, direct question or ask — no boilerplate softener sentence about pressure. No ' +
+  'subject line clickbait, no ' +
   'ALL CAPS, no exclamation points unless something genuinely warrants one (rare). Body must be plain text ' +
   '(no markdown, no HTML), and end with a sign-off line "The Colonbyte Team" on its own line, with nothing ' +
   'after it and no dash of any kind before it.\n\n' +
@@ -101,7 +109,8 @@ const FOLLOWUP_SYSTEM_PROMPT =
   'one short sentence saying we put together a quick preview (only now, not in the original email, unless ' +
   'the original already mentioned one), then the link. 25-50 words total, not counting the sign-off.\n\n' +
   'Hard bans: "just checking in", "following up on our last email", "circling back", "bumping this up", ' +
-  '"per our last message", "any update?", em dashes (—) anywhere, guilt-tripping or pressure language, ' +
+  '"per our last message", "any update?", em dashes (—), en dashes (–), or non-breaking hyphens anywhere ' +
+  '(use a plain ASCII hyphen for compound words), guilt-tripping or pressure language, ' +
   'restating the demo\'s tagline. No subject line clickbait, no ALL CAPS.\n\n' +
   'If websiteStatus is "unverified": their site did not load for our check (likely bot protection) — we ' +
   'have NO evidence it is bad, outdated, missing anything, or needs "verifying" in any SEO/Google-listing ' +
@@ -140,6 +149,22 @@ function buildFacts(lead, { includeDemo = false } = {}) {
   };
 }
 
+// Telling the model to "vary the structure across messages" in the system prompt alone does
+// NOT work in practice - measured live: three different real leads, same prompt, all three came
+// back with the identical "[observation] - [why it matters]. How do you currently handle [X]?"
+// scaffold despite that instruction being in the prompt. A static system prompt has no memory of
+// what shape the LAST email used, so there's nothing pulling it away from its single most-likely
+// completion. Picking one of these explicit shapes per call and putting it in the USER prompt
+// (see generateOutreach) actually forces a different completion each time, instead of hoping the
+// model self-diversifies.
+const STRUCTURE_VARIANTS = [
+  'Open with the observation as its own short, plain sentence. Make the reasoning ("why it might matter") a separate sentence after it, not a dash-linked clause on the same sentence. End with a plain question.',
+  'Open by leading with the question itself, weaving the observation into the same sentence as part of the reasoning behind asking it, rather than stating the observation first as its own sentence.',
+  'Open with a short sentence about what caught our attention when we looked at their business, THEN name the specific observation as a follow-on sentence. Close with a question phrased differently than "How do you currently handle X" - ask something more specific to their actual situation.',
+  'Open with a very short, blunt sentence (5-10 words) stating the observation with no lead-in at all. Follow with one sentence of reasoning. Close with a curious, informal question rather than a formal "How do you currently..." phrasing.',
+  'Open by stating in general terms why something like this observation tends to matter for a business like theirs, THEN name the specific observation that prompted the message, THEN the question.',
+];
+
 /**
  * Shared Groq Structured Outputs call for both the first email and the follow-up - never
  * throws, returns null on any error so callers can report { status: 'failed' }.
@@ -175,7 +200,10 @@ async function callGroqForEmail(systemPrompt, userPrompt) {
     if (!content) return null;
 
     const parsed = JSON.parse(content);
-    return { subject: parsed.subject || '', body: ensureSignOff(stripEmDashes(parsed.body || '')) };
+    return {
+      subject: normalizeDashes(parsed.subject || ''),
+      body: ensureSignOff(normalizeDashes(parsed.body || '')),
+    };
   } catch (err) {
     console.error('[outreachGenerator] Groq call failed:', err.message);
     return null;
@@ -184,17 +212,26 @@ async function callGroqForEmail(systemPrompt, userPrompt) {
 
 // Banned in the prompt but observed live anyway (an AI-outreach tell) - a plain hyphen with
 // spaces reads the same in casual text and the model reliably avoids re-adding it once it's
-// not an em dash, unlike asking it not to use one at all.
-function stripEmDashes(text) {
-  return text.replace(/\s*—\s*/g, ' - ');
+// not an em dash, unlike asking it not to use one at all. En dashes (–) get the same treatment
+// as em dashes here - observed live used identically as a sentence connector ("feature – that
+// means..."), the exact same tell in a different character the em-dash-only regex never caught.
+// Non-breaking hyphens (U+2011) inside compound words ("follow‑up") are a separate quirk - no
+// human types that character, so it's swapped for a plain ASCII hyphen rather than removed.
+function normalizeDashes(text) {
+  return text
+    .replace(/\s*[—–]\s*/g, ' - ')
+    .replace(/‑/g, '-');
 }
 
-// The model was asked for this sign-off but doesn't reliably include it (observed live on the
-// WhatsApp generator's follow-up path) - enforce it in code rather than trust the prompt
-// alone for something that should never vary.
+// The model was asked for this sign-off but doesn't reliably include it, and when it does, the
+// spacing before it varies (crammed onto the same line, a single newline, or a proper blank
+// line) - strip whatever the model added (if anything) and reapply it with consistent spacing,
+// rather than only filling in a sign-off that's fully absent and trusting the model's spacing
+// the rest of the time.
 function ensureSignOff(body) {
-  if (!body || /the colonbyte team\s*$/i.test(body.trim())) return body;
-  return `${body.trim()}\nThe Colonbyte Team`;
+  if (!body) return body;
+  const withoutSignOff = body.replace(/\s*the colonbyte team\s*$/i, '').trim();
+  return `${withoutSignOff}\n\nThe Colonbyte Team`;
 }
 
 /**
@@ -203,7 +240,11 @@ function ensureSignOff(body) {
  * choice (see buildFacts) so outreach can go out well before any demo exists.
  */
 export async function generateOutreach(lead, { includeDemo = false } = {}) {
-  const userPrompt = `Draft an outreach email for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}`;
+  const shape = STRUCTURE_VARIANTS[Math.floor(Math.random() * STRUCTURE_VARIANTS.length)];
+  const userPrompt =
+    `Draft an outreach email for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}\n\n` +
+    `Structural shape to use for THIS message specifically (different emails use different shapes - ` +
+    `follow this one rather than defaulting to your own default pattern): ${shape}`;
   const result = await callGroqForEmail(SYSTEM_PROMPT, userPrompt);
   if (!result) return { status: 'failed' };
   return { ...result, status: 'drafted', generatedAt: new Date() };

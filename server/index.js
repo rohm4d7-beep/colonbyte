@@ -84,17 +84,14 @@ app.use(
   })
 );
 
-// Mounted before express.json() below: SendGrid's webhook signature is computed over the
-// raw request bytes, so this route needs the unparsed Buffer, not a parsed JSON object.
+app.use(express.json({ limit: '100kb' }));
+app.use(mongoSanitize());
+
 app.use(
   '/webhooks',
   rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: true, legacyHeaders: false }),
-  express.raw({ type: 'application/json', limit: '100kb' }),
   webhookRoutes
 );
-
-app.use(express.json({ limit: '100kb' }));
-app.use(mongoSanitize());
 
 app.use(
   '/api',

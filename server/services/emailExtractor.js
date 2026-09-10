@@ -36,7 +36,19 @@ function extractFromMailto($) {
   const emails = $('a[href^="mailto:"], area[href^="mailto:"]')
     .toArray()
     .map(el => {
-      const raw = ($(el).attr('href') || '').replace('mailto:', '').split('?')[0].trim();
+      let raw = ($(el).attr('href') || '').replace('mailto:', '').split('?')[0];
+      // A raw href attribute is never auto-decoded (unlike browser navigation) - a site that
+      // encodes it as e.g. "mailto:%20info@site.com" (a URL-encoded leading space) leaves that
+      // "%20" as three literal characters, not real whitespace, so .trim() alone can't remove
+      // it. Since "%" is itself a valid local-part character in EMAIL_RE (real addresses can
+      // contain it), an undecoded "%20" gets swallowed straight into the match as
+      // "%20info@site.com" instead of the regex's char class naturally stopping at the space.
+      try {
+        raw = decodeURIComponent(raw);
+      } catch {
+        // malformed percent-encoding - fall through with the raw string
+      }
+      raw = raw.trim();
       return raw.match(EMAIL_RE)?.[0] || '';
     });
   return emails.filter(Boolean).filter(looksReal);

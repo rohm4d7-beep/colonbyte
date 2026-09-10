@@ -46,7 +46,9 @@ const SYSTEM_PROMPT =
   'If websiteStatus is "unverified": their site did not load for our check (likely bot protection) — we ' +
   'have NO evidence it is bad. NEVER call it broken, outdated, or lacking anything. Say plainly we tried ' +
   'to pull it up and it did not load - and only mention the preview at all if you\'re in MODE B.\n\n' +
-  'Hard bans — never use any of them: em dashes (—) anywhere; "visual credibility", "strengthen trust", ' +
+  'Hard bans — never use any of them: em dashes (—), en dashes (–), or non-breaking hyphens anywhere - ' +
+  'use a plain ASCII hyphen (-) for any compound word (e.g. "follow-up"), never a special dash character; ' +
+  '"visual credibility", "strengthen trust", ' +
   '"elevate", "seamless", "unlock", "showcase", "in today\'s digital age", "we noticed that", "we hope this ' +
   'finds you well", "Feel free to", "at your convenience", "No pressure", "streamline"; restating the ' +
   'demo\'s own tagline back at them; any formal email opener ("Dear", a subject line) or formal closer ' +
@@ -84,7 +86,8 @@ const FOLLOWUP_SYSTEM_PROMPT =
   'together a quick preview, still around if you want to take a look" plus the link (they may not have ' +
   'clicked it). 15-30 words.\n\n' +
   'Hard bans: "just checking in", "following up", "circling back", "bumping this", "any update?", em ' +
-  'dashes (—) anywhere, guilt-tripping or pressure language, restating the demo\'s tagline, any formal ' +
+  'dashes (—), en dashes (–), or non-breaking hyphens anywhere (use a plain ASCII hyphen for compound ' +
+  'words), guilt-tripping or pressure language, restating the demo\'s tagline, any formal ' +
   'email opener/closer. No ALL CAPS, at most one emoji only if natural.\n\n' +
   'If websiteStatus is "unverified": their site did not load for our check (likely bot protection) — we ' +
   'have NO evidence it is bad or needs "verifying" in any SEO/Google-listing sense. NEVER frame it as ' +
@@ -148,7 +151,7 @@ async function callGroqForMessage(systemPrompt, userPrompt) {
     if (!content) return null;
 
     const parsed = JSON.parse(content);
-    return { message: ensureSignOff(stripEmDashes(parsed.message || '')) };
+    return { message: ensureSignOff(normalizeDashes(parsed.message || '')) };
   } catch (err) {
     console.error('[whatsappOutreachGenerator] Groq call failed:', err.message);
     return null;
@@ -157,17 +160,25 @@ async function callGroqForMessage(systemPrompt, userPrompt) {
 
 // Banned in the prompt but observed live anyway (an AI-outreach tell) - a plain hyphen with
 // spaces reads the same in casual text and the model reliably avoids re-adding it once it's
-// not an em dash, unlike asking it not to use one at all.
-function stripEmDashes(text) {
-  return text.replace(/\s*—\s*/g, ' - ');
+// not an em dash, unlike asking it not to use one at all. En dashes (–) get the same treatment -
+// observed live used identically as a sentence connector, the same tell in a different character
+// the em-dash-only regex never caught. Non-breaking hyphens (U+2011) inside compound words
+// ("follow‑up") are a separate quirk - no human types that character, swapped for a plain hyphen.
+function normalizeDashes(text) {
+  return text
+    .replace(/\s*[—–]\s*/g, ' - ')
+    .replace(/‑/g, '-');
 }
 
 // The model was asked for this sign-off but doesn't reliably include it (observed live: an
-// otherwise-correct follow-up came back with no sign-off at all) - enforce it in code rather
-// than trust the prompt alone for something that should never vary.
+// otherwise-correct follow-up came back with no sign-off at all), and when it does, the spacing
+// before it varies (crammed onto the same line, a single newline, or a proper blank line) -
+// strip whatever the model added and reapply with consistent spacing, rather than only filling
+// in a sign-off that's fully absent and trusting the model's spacing otherwise.
 function ensureSignOff(message) {
-  if (!message || /the colonbyte team\s*$/i.test(message.trim())) return message;
-  return `${message.trim()}\nThe Colonbyte Team`;
+  if (!message) return message;
+  const withoutSignOff = message.replace(/\s*the colonbyte team\s*$/i, '').trim();
+  return `${withoutSignOff}\n\nThe Colonbyte Team`;
 }
 
 /**
