@@ -6,7 +6,7 @@ This is the frontend (`leadforge/`). The backend lives in the sibling directory 
 
 ## Setup
 
-The whole stack (Mongo + server + this client) is defined in `../docker-compose.yml` and is the recommended way to run it:
+The whole stack (server + this client) is defined in `../docker-compose.yml` and is the recommended way to run it. MongoDB itself is **not** bundled in Docker — both this and native dev connect to the same `MONGODB_URI` from `server/.env` (Atlas in this project), so leads are never split across two databases:
 
 ```bash
 cd ..                     # repo root, where docker-compose.yml lives

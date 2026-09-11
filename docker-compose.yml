@@ -1,32 +1,18 @@
 name: colonbyte-leads
 
 services:
-  mongo:
-    image: mongo:7
-    restart: unless-stopped
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodata:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   server:
     build: ./server
     restart: unless-stopped
     # Dockerfile's CMD is `npm start` (production, for Render/Fly) — locally we want
     # `npm run dev`'s --watch so the bind-mounted source below actually hot-reloads.
     command: npm run dev
-    depends_on:
-      mongo:
-        condition: service_healthy
+    # No local `mongo` service — real lead data lives in Atlas (server/.env's MONGODB_URI),
+    # same as native `npm run dev`. A bundled local Mongo container here used to silently
+    # override MONGODB_URI to a near-empty throwaway DB, which made the dashboard look like it
+    # had lost hundreds of leads when they were actually untouched in Atlas the whole time.
     env_file:
       - ./server/.env
-    environment:
-      MONGODB_URI: mongodb://mongo:27017/devsaura-leads
     ports:
       - "5000:5000"
     volumes:
@@ -45,6 +31,3 @@ services:
     volumes:
       - ./leadforge:/app
       - /app/node_modules
-
-volumes:
-  mongodata:
