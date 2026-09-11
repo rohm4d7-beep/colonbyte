@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import ScrapeComposer from '../components/ScrapeComposer';
 import PipelineOverview from '../components/PipelineOverview';
 import RecentActivity from '../components/RecentActivity';
+import { useConfirm } from '../components/ConfirmDialog';
 import API_BASE, { apiFetch } from '../config';
 
 function TrashIcon(props) {
@@ -33,6 +34,7 @@ export default function Dashboard() {
   });
   const [recent, setRecent] = useState([]);
   const [resetting, setResetting] = useState(false);
+  const confirm = useConfirm();
 
   const fetchStats = async () => {
     try {
@@ -54,7 +56,7 @@ export default function Dashboard() {
   }, []);
 
   const handleReset = async () => {
-    if (!window.confirm('Delete all leads? This cannot be undone.')) return;
+    if (!(await confirm('Delete all leads? This cannot be undone.', { confirmLabel: 'Delete all' }))) return;
     setResetting(true);
     try {
       await apiFetch(`${API_BASE}/api/leads`, { method: 'DELETE' });

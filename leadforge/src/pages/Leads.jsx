@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import LeadsTable from '../components/LeadsTable';
 import LeadDetailDrawer from '../components/LeadDetailDrawer';
 import { WEBSITE_STATUS_META } from '../components/WebsiteStatusBadge';
+import { useConfirm } from '../components/ConfirmDialog';
 import API_BASE, { apiFetch } from '../config';
 
 const MIN_RATING_OPTIONS = [
@@ -77,6 +78,7 @@ export default function Leads() {
   // pre-filtered view (e.g. /leads?highPriority=true) instead of just being decorative -
   // read once on mount as the initial filter state, same as a bookmark or shared link would.
   const [searchParams] = useSearchParams();
+  const confirm = useConfirm();
 
   const [leads, setLeads] = useState([]);
   const [total, setTotal] = useState(0);
@@ -143,7 +145,7 @@ export default function Leads() {
     // Confirmed live: two leads vanished this way with no trace in any pipeline log, since a
     // successful DELETE leaves nothing to trace. Same confirm() the bulk "delete all" action
     // already uses on Dashboard.jsx.
-    if (!window.confirm('Delete this lead? This cannot be undone.')) return;
+    if (!(await confirm('Delete this lead? This cannot be undone.', { confirmLabel: 'Delete' }))) return;
     try {
       await apiFetch(`${API_BASE}/api/leads/${id}`, { method: 'DELETE' });
       fetchLeads();

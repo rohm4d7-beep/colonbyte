@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import WebsiteStatusBadge from './WebsiteStatusBadge';
+import { useConfirm } from './ConfirmDialog';
 import API_BASE, { apiFetch } from '../config';
 import { OPPORTUNITY_LABELS } from '../constants/opportunityLabels';
 
@@ -129,6 +130,7 @@ function notHighPriorityMessage(lead) {
 }
 
 export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
+  const confirm = useConfirm();
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState(null);
   const [rechecking, setRechecking] = useState(false);
@@ -357,7 +359,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
 
   const handleSendOutreach = async () => {
     if (!lead) return;
-    if (!window.confirm(`Send this email to ${lead.email}? This cannot be undone.`)) return;
+    if (!(await confirm(`Send this email to ${lead.email}? This cannot be undone.`, { confirmLabel: 'Send' }))) return;
     setSending(true);
     setOutreachError(null);
     try {
@@ -685,7 +687,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
 
   const handleSendFollowUpEmail = async () => {
     if (!lead) return;
-    if (!window.confirm(`Send this follow-up to ${lead.email}? This cannot be undone.`)) return;
+    if (!(await confirm(`Send this follow-up to ${lead.email}? This cannot be undone.`, { confirmLabel: 'Send' }))) return;
     setSendingFollowUpEmail(true);
     setFollowUpEmailError(null);
     try {
