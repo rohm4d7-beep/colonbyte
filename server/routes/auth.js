@@ -34,6 +34,40 @@ const otpLimiter = rateLimit({
   message: { error: 'Too many code attempts. Request a new one.' },
 });
 
+// Brevo's shared sending domain intermittently soft-bounces against Gmail's DMARC check (see
+// project notes) - a fresh code with no password re-entry is the practical mitigation until the
+// sending domain is authenticated. Same abuse surface as the OTP guess itself, so same budget.
+const resendLimiter = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many resend requests. Wait a bit and try again.' },
+});
+
+async function issueOtp(req, res, email) {
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+  req.session.pendingOtp = {
+    code,
+    email,
+    expiresAt: Date.now() + OTP_TTL_MS,
+  };
+
+  const sent = await sendEmail({
+    to: email,
+    subject: 'Your Colon Byte login code',
+    body: `Your login code is ${code}\n\nIt expires in 10 minutes. If this wasn't you, ignore this email.`,
+  });
+  if (!sent.success) {
+    console.error('[auth] Failed to send OTP email:', sent.error);
+    res.status(502).json({ error: 'Could not send the verification code. Try again.' });
+    return false;
+  }
+
+  res.json({ otpRequired: true });
+  return true;
+}
+
 router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) {
@@ -50,24 +84,15 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
     return res.status(401).json({ error: 'Invalid email or password.' });
   }
 
-  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
-  req.session.pendingOtp = {
-    code,
-    email: admin.email,
-    expiresAt: Date.now() + OTP_TTL_MS,
-  };
+  await issueOtp(req, res, admin.email);
+}));
 
-  const sent = await sendEmail({
-    to: admin.email,
-    subject: 'Your Colon Byte login code',
-    body: `Your login code is ${code}\n\nIt expires in 10 minutes. If this wasn't you, ignore this email.`,
-  });
-  if (!sent.success) {
-    console.error('[auth] Failed to send OTP email:', sent.error);
-    return res.status(502).json({ error: 'Could not send the verification code. Try again.' });
+router.post('/resend-otp', resendLimiter, asyncHandler(async (req, res) => {
+  const pending = req.session.pendingOtp;
+  if (!pending) {
+    return res.status(400).json({ error: 'Start over — no login in progress.' });
   }
-
-  res.json({ otpRequired: true });
+  await issueOtp(req, res, pending.email);
 }));
 
 router.post('/verify-otp', otpLimiter, asyncHandler(async (req, res) => {

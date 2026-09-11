@@ -36,11 +36,20 @@ export default function Login({ onLoggedIn }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendMessage, setResendMessage] = useState(null);
   const otpInputRef = useRef(null);
 
   useEffect(() => {
     if (step === 'otp') otpInputRef.current?.focus();
   }, [step]);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setInterval(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(t);
+  }, [resendCooldown]);
 
   const handlePasswordSubmit = async (e) => {
     e.preventDefault();
@@ -55,10 +64,31 @@ export default function Login({ onLoggedIn }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Login failed.');
       setStep('otp');
+      setResendCooldown(30);
+      setResendMessage(null);
     } catch (err) {
       setError(err.message || 'Login failed.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setResending(true);
+    setError(null);
+    setResendMessage(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/auth/resend-otp`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not resend the code.');
+      setCode('');
+      setResendCooldown(30);
+      setResendMessage('A new code is on its way.');
+      otpInputRef.current?.focus();
+    } catch (err) {
+      setError(err.message || 'Could not resend the code.');
+    } finally {
+      setResending(false);
     }
   };
 
@@ -191,6 +221,21 @@ export default function Login({ onLoggedIn }) {
             {error && (
               <p className="mt-4 text-[12.5px]" style={{ color: 'var(--color-danger)' }}>{error}</p>
             )}
+            {!error && resendMessage && (
+              <p className="mt-4 text-[12.5px]" style={{ color: 'var(--color-accent-2)' }}>{resendMessage}</p>
+            )}
+
+            <p className="mt-4 text-[12.5px] text-text-3">
+              Didn't get it?{' '}
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resending || resendCooldown > 0}
+                className="font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50 disabled:hover:text-text-2"
+              >
+                {resending ? 'Sending…' : resendCooldown > 0 ? `Resend code (${resendCooldown}s)` : 'Resend code'}
+              </button>
+            </p>
 
             <button
               type="submit"
