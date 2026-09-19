@@ -8,12 +8,23 @@ const RESPONSE_SCHEMA = {
     properties: {
       summary: { type: 'string' },
       worthContacting: { type: 'boolean' },
+      qualificationConfidence: { type: 'string', enum: ['low', 'medium', 'high'] },
       strengths: { type: 'array', items: { type: 'string' } },
       weaknesses: { type: 'array', items: { type: 'string' } },
+      disqualifyingFactors: { type: 'array', items: { type: 'string' } },
       opportunity: { type: 'string' },
       suggestions: { type: 'array', items: { type: 'string' } },
     },
-    required: ['summary', 'worthContacting', 'strengths', 'weaknesses', 'opportunity', 'suggestions'],
+    required: [
+      'summary',
+      'worthContacting',
+      'qualificationConfidence',
+      'strengths',
+      'weaknesses',
+      'disqualifyingFactors',
+      'opportunity',
+      'suggestions',
+    ],
     additionalProperties: false,
   },
 };
@@ -60,6 +71,17 @@ const SYSTEM_PROMPT =
   'demand and reputation signals, reachable, an operating concern. A business with few or no reviews and ' +
   'thin signal overall is NOT worth contacting regardless of its website - say so plainly in "summary" ' +
   'rather than manufacturing a reason. Never force it.\n\n' +
+  '"qualificationConfidence" is honest, categorical (never numeric) certainty in the worthContacting ' +
+  'verdict itself: "high" when the facts are rich enough (real rating/reviewCount, reachable contact info) ' +
+  'that little doubt remains either way; "medium" when the verdict is reasonable but some signal is thin ' +
+  'or missing; "low" when you are genuinely guessing between the two verdicts because too little is given ' +
+  '(e.g. no rating and no reviewCount at all). A "low" confidence result is routed to a human for review, ' +
+  'so never inflate it just to sound decisive.\n\n' +
+  '"disqualifyingFactors" is ONLY populated when worthContacting is false — the specific facts (drawn ' +
+  'verbatim from what disqualified this business, e.g. "Only 2 reviews", "No phone or address listed") ' +
+  'that justify not contacting it, so a human skimming a rejected lead can see exactly why without ' +
+  'reading the full summary. Leave it an empty array whenever worthContacting is true — a qualified ' +
+  'business has weaknesses (see "weaknesses" below), not disqualifying factors.\n\n' +
   '"opportunity" is optional context, not the deciding factor: if the given facts happen to make a ' +
   'specific business-side observation obvious (e.g. real demand signals but a listing-only or hard-to-' +
   'find presence), note it in one or two sentences; otherwise leave it an empty string - do not strain to ' +
@@ -129,14 +151,31 @@ export async function analyzeLead(lead) {
     if (!content) return { status: 'failed' };
 
     const parsed = JSON.parse(content);
+    const worthContacting = typeof parsed.worthContacting === 'boolean' ? parsed.worthContacting : null;
 
     return {
       summary: parsed.summary || '',
-      worthContacting: typeof parsed.worthContacting === 'boolean' ? parsed.worthContacting : null,
+      worthContacting,
+      // undefined (not '') on an unrecognized value — same reasoning as opportunityAnalysis.js's
+      // opportunityConfidence: '' is not a valid enum member and would fail lead.save().
+      qualificationConfidence: ['low', 'medium', 'high'].includes(parsed.qualificationConfidence)
+        ? parsed.qualificationConfidence
+        : undefined,
       strengths: Array.isArray(parsed.strengths) ? parsed.strengths : [],
       weaknesses: Array.isArray(parsed.weaknesses) ? parsed.weaknesses : [],
+      // Only meaningful when the business was actually disqualified — enforced here too, not
+      // just in the prompt, in case the model populates it anyway.
+      disqualifyingFactors: worthContacting === false && Array.isArray(parsed.disqualifyingFactors)
+        ? parsed.disqualifyingFactors
+        : [],
       opportunity: parsed.opportunity || '',
       suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
+      // Deterministic, not AI-judged — see brief section 4/8: a low-confidence qualification
+      // verdict always gets a human's eyes before anything downstream (outreach generation,
+      // opportunity analysis) treats it as settled. Kept as a plain boolean function of
+      // qualificationConfidence rather than asking the model to self-flag, since "should a
+      // human check my own uncertain answer" is not a fact the model can reliably self-report.
+      requiresHumanReview: parsed.qualificationConfidence === 'low',
       status: 'completed',
       analyzedAt: new Date(),
     };

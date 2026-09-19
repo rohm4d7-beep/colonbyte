@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import LeadsTable from '../components/LeadsTable';
 import LeadDetailDrawer from '../components/LeadDetailDrawer';
 import { WEBSITE_STATUS_META } from '../components/WebsiteStatusBadge';
+import { LEAD_STATUSES, STATUS_LABELS } from '../constants/leadStatus';
 import { useConfirm } from '../components/ConfirmDialog';
 import API_BASE, { apiFetch } from '../config';
 
@@ -19,9 +20,8 @@ const WEBSITE_STATUS_OPTIONS = Object.entries(WEBSITE_STATUS_META).map(([value, 
   label: meta.label,
 }));
 
-function capitalize(s) {
-  if (!s) return 'All';
-  return s.charAt(0).toUpperCase() + s.slice(1);
+function statusLabel(s) {
+  return s ? STATUS_LABELS[s] || s : 'All';
 }
 
 function SearchIcon(props) {
@@ -87,6 +87,7 @@ export default function Leads() {
   const [country, setCountry] = useState('');
   const [websiteStatus, setWebsiteStatus] = useState(() => searchParams.get('websiteStatus') || '');
   const [highPriority, setHighPriority] = useState(() => searchParams.get('highPriority') === 'true');
+  const [requiresReview, setRequiresReview] = useState(() => searchParams.get('requiresReview') === 'true');
   const [minRating, setMinRating] = useState('');
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
@@ -98,6 +99,7 @@ export default function Leads() {
     if (country) params.set('country', country);
     if (websiteStatus) params.set('websiteStatus', websiteStatus);
     if (highPriority) params.set('highPriority', 'true');
+    if (requiresReview) params.set('requiresReview', 'true');
     if (minRating) params.set('minRating', minRating);
     if (status) params.set('status', status);
     if (search) params.set('search', search);
@@ -113,7 +115,7 @@ export default function Leads() {
     } catch {
       // ignore
     }
-  }, [country, websiteStatus, highPriority, minRating, status, search, page]);
+  }, [country, websiteStatus, highPriority, requiresReview, minRating, status, search, page]);
 
   useEffect(() => {
     fetchLeads();
@@ -163,7 +165,7 @@ export default function Leads() {
     setSelectedLead(updated);
   };
 
-  const statusFilters = ['', 'new', 'contacted', 'converted'];
+  const statusFilters = ['', ...LEAD_STATUSES];
 
   return (
     <motion.div
@@ -174,7 +176,7 @@ export default function Leads() {
     >
       <div
         className="flex items-center justify-between gap-3 rounded-full px-14 py-3 mb-4"
-        style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
+        style={{ background: 'var(--color-accent-2)', color: '#ffffff' }}
       >
         <div>
           <h1 className="text-[18px] font-bold tracking-tight leading-none">Leads</h1>
@@ -185,37 +187,83 @@ export default function Leads() {
         <button
           onClick={handleExport}
           className="flex items-center gap-2 rounded-full px-5 py-2.5 text-[13.5px] font-bold transition-all duration-150 hover:brightness-95 active:scale-[0.98]"
-          style={{ background: 'var(--color-black)', color: '#ffffff' }}
+          style={{ background: '#ffffff', color: 'var(--color-black)' }}
         >
           <DownloadIcon className="w-4 h-4" />
           Export CSV
         </button>
       </div>
 
-      {highPriority && (
+      {(highPriority || requiresReview) && (
         <div className="flex items-center gap-2 mb-4">
-          <span
-            className="inline-flex items-center gap-1.5 rounded-full pl-3 pr-1.5 py-1 text-[12px] font-semibold"
-            style={{ background: 'var(--color-accent-2-soft)', color: 'var(--color-accent-2)' }}
-          >
-            High Priority only
-            <button
-              onClick={() => { setHighPriority(false); setPage(1); }}
-              className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 hover:opacity-70"
-              style={{ background: 'var(--color-accent-2)', color: '#ffffff' }}
-              title="Clear filter"
+          {highPriority && (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full pl-3 pr-1.5 py-1 text-[12px] font-semibold"
+              style={{ background: 'var(--color-accent-2-soft)', color: 'var(--color-accent-2)' }}
             >
-              <CloseIcon className="w-2 h-2" />
-            </button>
-          </span>
+              High Priority only
+              <button
+                onClick={() => { setHighPriority(false); setPage(1); }}
+                className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 hover:opacity-70"
+                style={{ background: 'var(--color-accent-2)', color: '#ffffff' }}
+                title="Clear filter"
+              >
+                <CloseIcon className="w-2 h-2" />
+              </button>
+            </span>
+          )}
+          {requiresReview && (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full pl-3 pr-1.5 py-1 text-[12px] font-semibold"
+              style={{ background: 'var(--color-surface-2)', color: 'var(--color-text)' }}
+            >
+              Needs Review only
+              <button
+                onClick={() => { setRequiresReview(false); setPage(1); }}
+                className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 hover:opacity-70"
+                style={{ background: 'var(--color-text-3)', color: '#ffffff' }}
+                title="Clear filter"
+              >
+                <CloseIcon className="w-2 h-2" />
+              </button>
+            </span>
+          )}
         </div>
       )}
 
       <div
-        className="rounded-full px-6 py-3.5 mb-5"
-        style={{ background: 'var(--color-accent)' }}
+        className="rounded-full px-3 py-3 mb-3"
+        style={{ background: 'var(--color-accent-3)' }}
       >
-        <div className="flex flex-wrap items-center justify-center gap-5">
+        <div className="rounded-full px-2 py-1.5 overflow-x-auto" style={{ background: 'var(--color-black)' }}>
+          <div className="inline-flex items-center gap-0.5 whitespace-nowrap">
+            {statusFilters.map(s => (
+              <button
+                key={s || 'all'}
+                onClick={() => { setStatus(s); setPage(1); }}
+                className="relative px-3 py-1.5 rounded-full text-[12.5px] font-medium transition-colors duration-150 shrink-0"
+                style={{ color: status === s ? 'var(--color-black)' : 'rgba(255,255,255,0.65)' }}
+              >
+                {status === s && (
+                  <motion.span
+                    layoutId="status-pill"
+                    className="absolute inset-0 rounded-full"
+                    style={{ background: '#ffffff' }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 34 }}
+                  />
+                )}
+                <span className="relative">{statusLabel(s)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="rounded-full px-6 py-3.5 mb-5"
+        style={{ background: '#dfe1e0' }}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-5">
           <div className="flex items-center gap-2 pb-0 border-b border-transparent w-60">
             <SearchIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgba(0,0,0,0.6)' }} />
             <input
@@ -228,8 +276,7 @@ export default function Leads() {
             />
           </div>
 
-          <div className="w-px h-4" style={{ background: 'rgba(0,0,0,0.2)' }} />
-
+          <div className="flex flex-wrap items-center justify-end gap-5">
           <div className="relative inline-block">
             <select
               value={country}
@@ -279,28 +326,6 @@ export default function Leads() {
             </select>
             <ChevronDown className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5" style={{ color: 'rgba(0,0,0,0.6)' }} />
           </div>
-
-          <div className="w-px h-4" style={{ background: 'rgba(0,0,0,0.2)' }} />
-
-          <div className="inline-flex items-center gap-0.5 p-0.5 rounded-full" style={{ background: '#ffffff' }}>
-            {statusFilters.map(s => (
-              <button
-                key={s || 'all'}
-                onClick={() => { setStatus(s); setPage(1); }}
-                className="relative px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors duration-150"
-                style={{ color: status === s ? '#ffffff' : '#000000' }}
-              >
-                {status === s && (
-                  <motion.span
-                    layoutId="status-pill"
-                    className="absolute inset-0 rounded-full"
-                    style={{ background: 'var(--color-black)' }}
-                    transition={{ type: 'spring', stiffness: 500, damping: 34 }}
-                  />
-                )}
-                <span className="relative">{capitalize(s)}</span>
-              </button>
-            ))}
           </div>
         </div>
       </div>

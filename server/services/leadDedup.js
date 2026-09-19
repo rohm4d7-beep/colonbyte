@@ -74,10 +74,16 @@ export async function findDuplicateLead({ businessName, phone, website, lat, lng
     if (byPlaceId) return byPlaceId;
   }
 
+  // Unlike placeId (Google's own canonical fingerprint) or a website domain (a business rarely
+  // shares one), a phone number alone isn't a safe identity match on its own - a shared
+  // reception line, a reused/reassigned number, or a franchise hotline can be attached to two
+  // genuinely different businesses. The geo+name tier below already requires a name match on
+  // top of proximity; apply the same guard here so this tier isn't the only one that would
+  // match two unrelated businesses on a single coincidental signal.
   const normalizedPhone = normalizePhone(phone);
   if (normalizedPhone) {
     const byPhone = await Lead.findOne({ normalizedPhone });
-    if (byPhone) return byPhone;
+    if (byPhone && namesAreSimilar(businessName, byPhone.businessName)) return byPhone;
   }
 
   const websiteDomain = normalizeWebsiteDomain(website);

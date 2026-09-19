@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { rateLimit } from 'express-rate-limit';
 import { chromium } from 'playwright';
 import Lead from '../models/Lead.js';
+import Campaign from '../models/Campaign.js';
 import { scrapeGoogleMaps } from '../services/googleMapsScraper.js';
 import { extractContactInfoFromWebsite, isRealSocialProfileUrl } from '../services/emailExtractor.js';
 import { verifyCountry, resolveCountryCode } from '../services/countryVerification.js';
@@ -52,12 +53,25 @@ function preserveExistingContactInfo(fields, existing) {
   return merged;
 }
 
-async function runJob(jobId, keyword, targetCountry, requireContact) {
-  const counts = { rejected: 0, duplicates: 0, saved: 0, hasWebsite: 0, unverified: 0, noEmail: 0, errored: 0 };
+async function markCampaignDone(campaignId, status) {
+  if (!campaignId) return;
+  await Campaign.updateOne({ _id: campaignId }, { status, completedAt: new Date() }).catch((err) => {
+    console.error(`[scrape] Failed to mark campaign ${campaignId} as ${status}:`, err.message);
+  });
+}
+
+async function runJob(jobId, keyword, targetCountry, requireContact, prioritizeContact, campaignId) {
+  const counts = { rejected: 0, duplicates: 0, saved: 0, hasWebsite: 0, unverified: 0, noEmail: 0, errored: 0, weakContactSkipped: 0 };
   // Set once googleMapsScraper.js's circuit breaker trips (Google rate-limiting/blocking this
   // connection, not a batch of coincidentally-dead listings) - surfaced to the dashboard so a
   // wall of "failed" reads as an external block instead of looking like a broken scraper.
   let blocked = false;
+
+  // Set when every city search googleMapsScraper.js ran came back empty because the search
+  // itself failed (timeout/selector never loaded), not because Maps genuinely has zero results
+  // for this keyword/country - see the comment in googleMapsScraper.js. Surfaced separately from
+  // `blocked` (a mid-scrape rate-limit) since this fails before a single listing is even visited.
+  let searchFailed = false;
 
   // Shared across every item in this job — analyzeWebsite() only needs it as a fallback for
   // axios-blocked sites, but launching a fresh Chromium process per item (on top of the Maps
@@ -78,7 +92,8 @@ async function runJob(jobId, keyword, targetCountry, requireContact) {
       searchCities,
       onProgress: (progress) => {
         if (progress.blocked) blocked = true;
-        broadcast(jobId, { ...progress, ...counts, blocked });
+        if (progress.searchFailed) searchFailed = true;
+        broadcast(jobId, { ...progress, ...counts, blocked, searchFailed });
       },
       onItemError: () => {
         counts.errored += 1;
@@ -155,6 +170,20 @@ async function runJob(jobId, keyword, targetCountry, requireContact) {
         if (!email) {
           counts.noEmail += 1;
         }
+
+        // prioritizeContact means "only save leads with an email or Instagram" - Facebook and
+        // phone/WhatsApp are real channels but slower/less reliable for outreach, so when this
+        // is on, a lead whose ONLY contact info is Facebook and/or a phone number is skipped
+        // entirely rather than saved as low-value. A lead with neither email/Instagram NOR
+        // Facebook/phone (e.g. website-only, or fully uncontactable) is untouched by this flag -
+        // that case is requireContact's job, not this one.
+        const hasStrongContact = !!email || !!instagramUrl;
+        const onlyWeakContact = !hasStrongContact && (!!facebookUrl || !!item.phone);
+        if (prioritizeContact && onlyWeakContact) {
+          counts.weakContactSkipped += 1;
+          return;
+        }
+
         // requireContact means "skip phone/WhatsApp-only leads" specifically - a website is
         // just as usable a channel as email/Instagram/Facebook, but only when it's a CONFIRMED
         // reachable site ('has_website', 'weak_website', or 'outdated' - see websiteAnalyzer.js,
@@ -243,7 +272,11 @@ async function runJob(jobId, keyword, targetCountry, requireContact) {
         } else {
           try {
             counts.saved += 1;
-            await Lead.create({ ...fields, status: 'new' });
+            // campaignId only ever set here, on a genuine first save - never merged into
+            // `fields` itself (both duplicate-update branches above/below $set `fields` as-is),
+            // so re-discovering an existing business under a different campaign never rewrites
+            // which campaign actually found it first.
+            await Lead.create({ ...fields, status: 'new', campaignId });
           } catch (err) {
             // findDuplicateLead ran before any worker had inserted this placeId, so two
             // concurrent workers (see CONCURRENCY in googleMapsScraper.js) racing the same
@@ -267,12 +300,14 @@ async function runJob(jobId, keyword, targetCountry, requireContact) {
         }
       },
     });
-    const finalProgress = { ...(jobs.get(jobId)?.last || {}), ...counts, status: 'done', blocked };
+    const finalProgress = { ...(jobs.get(jobId)?.last || {}), ...counts, status: 'done', blocked, searchFailed };
     console.log(`[scrape] job ${jobId} (${keyword} / ${targetCountry}) done:`, JSON.stringify(finalProgress));
     broadcast(jobId, finalProgress);
+    await markCampaignDone(campaignId, 'done');
   } catch (err) {
     console.error(`[scrape] job ${jobId} failed:`, err.message);
     broadcast(jobId, { found: 0, processed: 0, ...(jobs.get(jobId)?.last || {}), ...counts, status: 'error' });
+    await markCampaignDone(campaignId, 'error');
   } finally {
     await analysisBrowser.close();
   }
@@ -286,7 +321,7 @@ const startLimiter = rateLimit({
   message: { error: 'Too many scrape jobs started. Please wait before starting another.' },
 });
 
-router.post('/start', startLimiter, (req, res) => {
+router.post('/start', startLimiter, async (req, res) => {
   const keyword = (req.body?.keyword || '').trim();
   const country = (req.body?.country || '').trim();
 
@@ -298,12 +333,29 @@ router.post('/start', startLimiter, (req, res) => {
   }
 
   const requireContact = req.body?.requireContact === true;
+  const prioritizeContact = req.body?.prioritizeContact === true;
 
   const jobId = randomUUID();
+
+  // Auto-created per scrape job, never configured upfront - see models/Campaign.js. A failure
+  // here (e.g. a transient Mongo blip) shouldn't block starting the scrape itself, so the job
+  // still runs with campaignId left undefined - the lead just won't be attributed to a campaign.
+  const campaign = await Campaign.create({
+    name: `${keyword} · ${country} · ${new Date().toLocaleDateString()}`,
+    keyword,
+    country,
+    jobId,
+    requireContact,
+    prioritizeContact,
+  }).catch((err) => {
+    console.error('[scrape] Failed to create campaign record:', err.message);
+    return null;
+  });
+
   jobs.set(jobId, { clients: new Set(), last: { found: 0, processed: 0, status: 'running' } });
   activeJobId = jobId;
 
-  runJob(jobId, keyword, country, requireContact);
+  runJob(jobId, keyword, country, requireContact, prioritizeContact, campaign?._id);
 
   res.json({ jobId });
 });

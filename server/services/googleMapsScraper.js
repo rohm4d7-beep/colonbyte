@@ -280,17 +280,30 @@ export async function scrapeGoogleMaps(keyword, { onProgress, processItem, onIte
     const perTermCap = Math.max(10, Math.ceil(MAX_RESULTS / terms.length));
 
     const linksByTerm = [];
+    let failedTermCount = 0;
     for (const term of terms) {
       onProgress?.({ found: 0, processed: 0, status: 'running', searchingTerm: term });
       const links = await collectLinksForTerm(browser, term, perTermCap).catch((err) => {
         console.error(`[googleMapsScraper] Search failed for "${term}":`, err.message);
+        failedTermCount++;
         return [];
       });
       linksByTerm.push(links);
     }
 
     const uniqueLinks = [...new Set(linksByTerm.flat())].slice(0, MAX_RESULTS);
-    onProgress?.({ found: uniqueLinks.length, processed: 0, status: 'running' });
+
+    // A genuinely empty search (nothing on Maps for this keyword/city) and a search that never
+    // came back at all (goto timeout, selector never appeared) both end up here as `found: 0` -
+    // previously indistinguishable in the UI, so a real outage looked identical to "there's just
+    // nothing there." Only worth surfacing once EVERY term failed outright; a mix of empty-but-
+    // successful and failed terms is still a normal partial result, not a signal worth a distinct
+    // "the search itself broke" message.
+    const searchFailed = terms.length > 0 && failedTermCount === terms.length;
+    if (searchFailed) {
+      console.error(`[googleMapsScraper] All ${terms.length} search(es) failed for "${keyword}" - the Maps search itself never returned, this is not a genuinely empty result.`);
+    }
+    onProgress?.({ found: uniqueLinks.length, processed: 0, status: 'running', searchFailed });
 
     // A handful of tabs pull from the same queue rather than a strict one-at-a-time loop —
     // see CONCURRENCY above.

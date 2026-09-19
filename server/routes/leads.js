@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { Parser as CsvParser } from 'json2csv';
 import { rateLimit } from 'express-rate-limit';
-import Lead, { WEBSITE_STATUSES } from '../models/Lead.js';
+import Lead, { WEBSITE_STATUSES, LEAD_STATUSES, REPLY_CHANNELS } from '../models/Lead.js';
 import { TEMPLATE_KEYS } from '../constants/demoOptions.js';
 import { analyzeLead } from '../services/aiAnalysis.js';
 import { analyzeOpportunity, noOpportunity } from '../services/opportunityAnalysis.js';
@@ -9,8 +9,10 @@ import { generateDemoContent } from '../services/demoContentGenerator.js';
 import { generateOutreach, generateFollowUpEmail } from '../services/outreachGenerator.js';
 import { generateWhatsappOutreach, generateFollowUpWhatsapp } from '../services/whatsappOutreachGenerator.js';
 import { generateInstagramOutreach, generateFollowUpInstagram } from '../services/instagramOutreachGenerator.js';
-import { generateFacebookOutreach } from '../services/facebookOutreachGenerator.js';
+import { generateFacebookOutreach, generateFollowUpFacebook } from '../services/facebookOutreachGenerator.js';
 import { sendOutreachEmail } from '../services/emailSender.js';
+import { classifyReply } from '../services/replyClassifier.js';
+import { setStatus } from '../services/statusTransition.js';
 import { analyzeWebsite } from '../services/websiteAnalyzer.js';
 import { extractContactInfoFromWebsite, isRealSocialProfileUrl } from '../services/emailExtractor.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -43,10 +45,16 @@ const EXPORT_FIELDS = [
   'reviewCount',
   'category',
   'aiAnalysis.worthContacting',
+  'aiAnalysis.qualificationConfidence',
+  'aiAnalysis.requiresHumanReview',
   'aiAnalysis.opportunity',
   'opportunityAnalysis.primaryOpportunity',
   'opportunityAnalysis.solutionCategory',
   'opportunityAnalysis.outreachAngle',
+  'outreach.promptVersion',
+  'whatsappOutreach.promptVersion',
+  'instagramOutreach.promptVersion',
+  'facebookOutreach.promptVersion',
   'address',
   'country',
   'countryCode',
@@ -102,16 +110,32 @@ function notOutreachEligibleMessage(lead) {
   return 'Run AI analysis before drafting outreach.';
 }
 
+// Every status transition goes through setStatus() (services/statusTransition.js) so
+// statusHistory (see models/Lead.js) stays a complete record - both the manual PATCH
+// /:id/status route and any automatic transition (a send succeeding, an opt-out reply) call it
+// instead of setting lead.status directly. Extracted to its own module so it's unit-testable
+// (brief section 19) without needing to spin up this whole router.
+
+// Applied at the top of every generate-*/send-* route - a suppressed lead (opted out, or
+// manually marked do-not-contact) must not get a new draft or a new send, full stop. See
+// models/Lead.js's doNotContact fields and PATCH /:id/do-not-contact below.
+function assertNotSuppressed(lead, res) {
+  if (!lead.doNotContact) return false;
+  res.status(409).json({ error: `This lead is marked do-not-contact${lead.doNotContactReason ? ` (${lead.doNotContactReason})` : ''}.` });
+  return true;
+}
+
 router.get('/stats', asyncHandler(async (req, res) => {
-  const [total, emails, contacted, converted, websiteMissing, highPriority] = await Promise.all([
+  const [total, emails, contacted, won, websiteMissing, highPriority, needsReview] = await Promise.all([
     Lead.countDocuments({}),
     Lead.countDocuments({ email: { $ne: '' } }),
     Lead.countDocuments({ status: 'contacted' }),
-    Lead.countDocuments({ status: 'converted' }),
+    Lead.countDocuments({ status: 'won' }),
     Lead.countDocuments({ websiteStatus: 'none' }),
     Lead.countDocuments({ highPriority: true }),
+    Lead.countDocuments({ 'aiAnalysis.requiresHumanReview': true }),
   ]);
-  res.json({ total, emails, contacted, converted, websiteMissing, highPriority });
+  res.json({ total, emails, contacted, won, websiteMissing, highPriority, needsReview });
 }));
 
 router.get('/countries', asyncHandler(async (req, res) => {
@@ -132,11 +156,11 @@ router.get('/export', asyncHandler(async (req, res) => {
 }));
 
 router.get('/', asyncHandler(async (req, res) => {
-  const { country, status, websiteStatus, highPriority, minRating, search, page = 1, limit = 20 } = req.query;
+  const { country, status, websiteStatus, highPriority, requiresReview, minRating, search, page = 1, limit = 20 } = req.query;
 
   const filter = {};
   if (typeof country === 'string' && country) filter.country = country;
-  if (typeof status === 'string' && ['new', 'contacted', 'converted'].includes(status)) {
+  if (typeof status === 'string' && LEAD_STATUSES.includes(status)) {
     filter.status = status;
   }
   if (typeof websiteStatus === 'string' && WEBSITE_STATUSES.includes(websiteStatus)) {
@@ -147,6 +171,11 @@ router.get('/', asyncHandler(async (req, res) => {
   // it links to can never drift apart.
   if (highPriority === 'true') {
     filter.highPriority = true;
+  }
+  // Backs the Dashboard's "Needs Review" stat card - a low-confidence qualification verdict
+  // (aiAnalysis.js's requiresHumanReview) that a human hasn't looked at yet.
+  if (requiresReview === 'true') {
+    filter['aiAnalysis.requiresHumanReview'] = true;
   }
   if (typeof minRating === 'string' && minRating) {
     const parsed = parseFloat(minRating);
@@ -341,6 +370,7 @@ router.post('/:id/change-template', analyzeLimiter, asyncHandler(async (req, res
 router.post('/:id/generate-outreach', analyzeLimiter, asyncHandler(async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (assertNotSuppressed(lead, res)) return;
   if (!isOutreachEligible(lead)) {
     return res.status(409).json({ error: notOutreachEligibleMessage(lead) });
   }
@@ -390,6 +420,7 @@ router.patch('/:id/outreach', asyncHandler(async (req, res) => {
 router.post('/:id/generate-whatsapp', analyzeLimiter, asyncHandler(async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (assertNotSuppressed(lead, res)) return;
   if (!lead.phone) return res.status(400).json({ error: 'This lead has no phone number.' });
   if (!isOutreachEligible(lead)) {
     return res.status(409).json({ error: notOutreachEligibleMessage(lead) });
@@ -433,7 +464,7 @@ router.post('/:id/whatsapp-opened', asyncHandler(async (req, res) => {
 
   lead.whatsappOutreach.status = 'opened';
   lead.whatsappOutreach.openedAt = new Date();
-  if (lead.status === 'new') lead.status = 'contacted';
+  if (lead.status === 'new') setStatus(lead, 'contacted', { source: 'system', note: 'WhatsApp message opened' });
   await lead.save();
 
   res.json(lead);
@@ -442,6 +473,7 @@ router.post('/:id/whatsapp-opened', asyncHandler(async (req, res) => {
 router.post('/:id/generate-instagram', analyzeLimiter, asyncHandler(async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (assertNotSuppressed(lead, res)) return;
   if (!lead.instagramUrl) return res.status(400).json({ error: 'This lead has no Instagram profile.' });
   if (!isOutreachEligible(lead)) {
     return res.status(409).json({ error: notOutreachEligibleMessage(lead) });
@@ -485,7 +517,7 @@ router.post('/:id/instagram-opened', asyncHandler(async (req, res) => {
 
   lead.instagramOutreach.status = 'opened';
   lead.instagramOutreach.openedAt = new Date();
-  if (lead.status === 'new') lead.status = 'contacted';
+  if (lead.status === 'new') setStatus(lead, 'contacted', { source: 'system', note: 'Instagram DM opened' });
   await lead.save();
 
   res.json(lead);
@@ -494,6 +526,7 @@ router.post('/:id/instagram-opened', asyncHandler(async (req, res) => {
 router.post('/:id/generate-followup-instagram', analyzeLimiter, asyncHandler(async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (assertNotSuppressed(lead, res)) return;
   if (lead.instagramOutreach?.status !== 'opened') {
     return res.status(409).json({ error: 'Open the first Instagram DM before drafting a follow-up.' });
   }
@@ -538,6 +571,7 @@ router.post('/:id/followup-instagram-opened', asyncHandler(async (req, res) => {
 router.post('/:id/generate-facebook', analyzeLimiter, asyncHandler(async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (assertNotSuppressed(lead, res)) return;
   if (!lead.facebookUrl) return res.status(400).json({ error: 'This lead has no Facebook page.' });
   if (!isOutreachEligible(lead)) {
     return res.status(409).json({ error: notOutreachEligibleMessage(lead) });
@@ -579,7 +613,52 @@ router.post('/:id/facebook-opened', asyncHandler(async (req, res) => {
 
   lead.facebookOutreach.status = 'opened';
   lead.facebookOutreach.openedAt = new Date();
-  if (lead.status === 'new') lead.status = 'contacted';
+  if (lead.status === 'new') setStatus(lead, 'contacted', { source: 'system', note: 'Facebook message opened' });
+  await lead.save();
+
+  res.json(lead);
+}));
+
+router.post('/:id/generate-followup-facebook', analyzeLimiter, asyncHandler(async (req, res) => {
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (assertNotSuppressed(lead, res)) return;
+  if (lead.facebookOutreach?.status !== 'opened') {
+    return res.status(409).json({ error: 'Open the first Facebook message before drafting a follow-up.' });
+  }
+
+  const includeDemo = req.body?.includeDemo === true;
+  const followUp = await generateFollowUpFacebook(lead, { includeDemo });
+  lead.facebookFollowUp = { ...lead.facebookFollowUp.toObject(), ...followUp };
+  await lead.save();
+
+  res.json(lead);
+}));
+
+router.patch('/:id/followup-facebook', asyncHandler(async (req, res) => {
+  const { message } = req.body || {};
+  if (typeof message !== 'string' || !message.trim() || message.length > 2000) {
+    return res.status(400).json({ error: 'Message is required (max 2000 characters).' });
+  }
+
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+
+  lead.facebookFollowUp.message = message.trim();
+  if (lead.facebookFollowUp.status === 'pending' || lead.facebookFollowUp.status === 'failed') {
+    lead.facebookFollowUp.status = 'drafted';
+  }
+  await lead.save();
+
+  res.json(lead);
+}));
+
+router.post('/:id/followup-facebook-opened', asyncHandler(async (req, res) => {
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+
+  lead.facebookFollowUp.status = 'opened';
+  lead.facebookFollowUp.openedAt = new Date();
   await lead.save();
 
   res.json(lead);
@@ -596,6 +675,7 @@ const sendLimiter = rateLimit({
 router.post('/:id/send-outreach', sendLimiter, asyncHandler(async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (assertNotSuppressed(lead, res)) return;
   if (!lead.email) return res.status(400).json({ error: 'This lead has no email address.' });
   if (!isOutreachEligible(lead)) {
     return res.status(409).json({ error: notOutreachEligibleMessage(lead) });
@@ -605,6 +685,14 @@ router.post('/:id/send-outreach', sendLimiter, asyncHandler(async (req, res) => 
   }
   if (lead.outreach?.status !== 'drafted') {
     return res.status(409).json({ error: 'Generate and review a draft before sending.' });
+  }
+  // Brevo's webhook (routes/webhooks.js) flags this on any hard bounce/spam-complaint/block/
+  // invalid-address event - previously recorded but never checked again, so a known-bad
+  // address could be resent to with no warning, risking sender-domain reputation. There's no
+  // UI path yet to edit a lead's email or clear this flag once set (a real gap, flagged
+  // separately) - for now this blocks the send outright rather than silently retrying.
+  if (lead.outreach?.bounced) {
+    return res.status(409).json({ error: 'This email previously bounced or was flagged as spam/invalid. Verify the address before sending again.' });
   }
 
   const result = await sendOutreachEmail({
@@ -623,7 +711,11 @@ router.post('/:id/send-outreach', sendLimiter, asyncHandler(async (req, res) => 
   lead.outreach.status = 'sent';
   lead.outreach.sentAt = new Date();
   lead.outreach.providerMessageId = result.messageId || '';
-  if (lead.status === 'new') lead.status = 'contacted';
+  // Not 'delivered' - Brevo's webhook (routes/webhooks.js) never receives a distinct delivery
+  // confirmation event, only open/click/bounce, so this app has no real signal to promote to
+  // 'delivered' automatically. That status stays available for a human to set manually if they
+  // learn delivery happened some other way, rather than this app claiming it without evidence.
+  if (lead.status === 'new') setStatus(lead, 'contacted', { source: 'system', note: 'Outreach email sent' });
   await lead.save();
 
   res.json(lead);
@@ -632,6 +724,7 @@ router.post('/:id/send-outreach', sendLimiter, asyncHandler(async (req, res) => 
 router.post('/:id/generate-followup-email', analyzeLimiter, asyncHandler(async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (assertNotSuppressed(lead, res)) return;
   if (lead.outreach?.status !== 'sent') {
     return res.status(409).json({ error: 'Send the first email before drafting a follow-up.' });
   }
@@ -675,12 +768,18 @@ router.patch('/:id/followup-email', asyncHandler(async (req, res) => {
 router.post('/:id/send-followup-email', sendLimiter, asyncHandler(async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (assertNotSuppressed(lead, res)) return;
   if (!lead.email) return res.status(400).json({ error: 'This lead has no email address.' });
   if (lead.outreachFollowUp?.status === 'sent') {
     return res.status(409).json({ error: 'The follow-up has already been sent.' });
   }
   if (lead.outreachFollowUp?.status !== 'drafted') {
     return res.status(409).json({ error: 'Generate and review a follow-up draft before sending.' });
+  }
+  // Same address, same Brevo tag (leadId) as the initial send - a bounce/complaint recorded
+  // against lead.outreach.bounced applies here too, see the identical check in /send-outreach.
+  if (lead.outreach?.bounced) {
+    return res.status(409).json({ error: 'This email previously bounced or was flagged as spam/invalid. Verify the address before sending again.' });
   }
 
   const result = await sendOutreachEmail({
@@ -707,6 +806,7 @@ router.post('/:id/send-followup-email', sendLimiter, asyncHandler(async (req, re
 router.post('/:id/generate-followup-whatsapp', analyzeLimiter, asyncHandler(async (req, res) => {
   const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (assertNotSuppressed(lead, res)) return;
   if (lead.whatsappOutreach?.status !== 'opened') {
     return res.status(409).json({ error: 'Open the first WhatsApp message before drafting a follow-up.' });
   }
@@ -750,11 +850,93 @@ router.post('/:id/followup-whatsapp-opened', asyncHandler(async (req, res) => {
 
 router.patch('/:id/status', asyncHandler(async (req, res) => {
   const { status } = req.body || {};
-  if (!['new', 'contacted', 'converted'].includes(status)) {
+  if (!LEAD_STATUSES.includes(status)) {
     return res.status(400).json({ error: 'Invalid status.' });
   }
-  const lead = await Lead.findByIdAndUpdate(req.params.id, { status }, { new: true });
+  const lead = await Lead.findById(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  setStatus(lead, status, { source: 'human' });
+  await lead.save();
+  res.json(lead);
+}));
+
+router.patch('/:id/do-not-contact', asyncHandler(async (req, res) => {
+  const doNotContact = req.body?.doNotContact === true;
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 300) : '';
+
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+
+  lead.doNotContact = doNotContact;
+  lead.doNotContactReason = doNotContact ? reason : '';
+  lead.doNotContactAt = doNotContact ? new Date() : null;
+  if (doNotContact) {
+    setStatus(lead, 'do_not_contact', { source: 'human', note: reason });
+  }
+  await lead.save();
+
+  res.json(lead);
+}));
+
+// A human pastes exactly what a lead replied with (no inbound API capture for any channel - see
+// [[project-leadforge-pipeline-issues]] audit); classifyReply (services/replyClassifier.js) then
+// labels it. An 'opt_out' classification automatically suppresses the lead - this is the one
+// place a reply is allowed to change doNotContact on its own, since ignoring an opt-out is a
+// real compliance risk, not just a missed follow-up.
+router.post('/:id/replies', analyzeLimiter, asyncHandler(async (req, res) => {
+  const { channel, text } = req.body || {};
+  if (!REPLY_CHANNELS.includes(channel)) {
+    return res.status(400).json({ error: 'A valid channel is required.' });
+  }
+  if (typeof text !== 'string' || !text.trim() || text.length > 4000) {
+    return res.status(400).json({ error: 'Reply text is required (max 4000 characters).' });
+  }
+
+  const lead = await Lead.findById(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+
+  const classification = await classifyReply({ channel, businessName: lead.businessName, replyText: text.trim() });
+
+  lead.replies.push({
+    channel,
+    text: text.trim(),
+    loggedAt: new Date(),
+    classification: classification.status === 'completed'
+      ? { label: classification.label, confidence: classification.confidence, reasoning: classification.reasoning }
+      : undefined,
+  });
+
+  // A reply is a real, unambiguous fact regardless of how it classifies - only advance the
+  // status forward (never regress a lead already further along, e.g. already 'won').
+  const preReplyStatuses = ['new', 'contacted', 'delivered'];
+  if (preReplyStatuses.includes(lead.status)) {
+    setStatus(lead, 'replied', { source: 'system', note: `${channel} reply logged` });
+  }
+
+  // 'interested' is the one classification label with an unambiguous, dedicated pipeline status
+  // to match - same reasoning as the opt_out -> do_not_contact transition below. Other labels
+  // (not_interested, pricing_inquiry, referral, unclear) deliberately do NOT auto-transition:
+  // none of LEAD_STATUSES' later stages (lost, qualified, negotiation, etc.) map to them without
+  // a human judgment call this classifier isn't positioned to make. Forward-only, same as above -
+  // a human who already advanced this lead past positive_interest (e.g. to 'qualified') never
+  // gets regressed by a later reply.
+  if (
+    classification.status === 'completed' &&
+    classification.label === 'interested' &&
+    [...preReplyStatuses, 'replied'].includes(lead.status)
+  ) {
+    setStatus(lead, 'positive_interest', { source: 'system', note: `${channel} reply classified as interested` });
+  }
+
+  if (classification.status === 'completed' && classification.label === 'opt_out') {
+    lead.doNotContact = true;
+    lead.doNotContactReason = 'Opt-out reply';
+    lead.doNotContactAt = new Date();
+    setStatus(lead, 'do_not_contact', { source: 'system', note: 'Auto-suppressed: opt-out reply' });
+  }
+
+  await lead.save();
+
   res.json(lead);
 }));
 

@@ -13,13 +13,15 @@ import demoRoutes from './routes/demo.js';
 import webhookRoutes from './routes/webhooks.js';
 import authRoutes from './routes/auth.js';
 import groqUsageRoutes from './routes/groqUsage.js';
+import campaignsRoutes from './routes/campaigns.js';
 import { requireAuth } from './middleware/requireAuth.js';
 import Lead from './models/Lead.js';
 
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/leadforge';
-// Comma-separated so the deployed Vercel dashboard and local dev can both be allowed at once,
-// e.g. CLIENT_ORIGIN="https://leadforge.vercel.app,http://localhost:3002".
+// Comma-separated in case more than one local origin ever needs to hit this server at once
+// (e.g. a second dev machine) - the dashboard itself is deliberately local-only (see
+// render.yaml's CLIENT_ORIGIN comment), never hosted publicly.
 const CLIENT_ORIGINS = (process.env.CLIENT_ORIGIN || 'http://localhost:3002')
   .split(',')
   .map((o) => o.trim())
@@ -74,10 +76,14 @@ app.use(
     store: MongoStore.create({ mongoUrl: MONGODB_URI, collectionName: 'sessions' }),
     cookie: {
       httpOnly: true,
-      // The Vercel-hosted dashboard and the Render backend are different origins, so the
-      // cookie needs SameSite=None (which itself requires Secure) to be sent at all - 'lax'
-      // silently drops it on cross-origin requests. Local dev stays on 'lax' since it's
-      // same-origin through Vite's proxy, and 'none' without HTTPS wouldn't work there anyway.
+      // The dashboard is deliberately local-only (see render.yaml's CLIENT_ORIGIN comment) -
+      // it's never hosted on Vercel or anywhere else. But "local" (http://localhost:3002) and
+      // the deployed Render backend (https://leadforge-server-*.onrender.com) are still
+      // different origins by scheme+host, so the cookie needs SameSite=None (which itself
+      // requires Secure) to be sent at all - 'lax' silently drops it on that cross-origin
+      // request regardless of Vercel being involved. Local dev against a LOCAL server stays on
+      // 'lax' since Vite's proxy makes that same-origin, and 'none' without HTTPS wouldn't work
+      // there anyway - this only matters once the dashboard talks to the deployed Render URL.
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 30 * 24 * 60 * 60 * 1000,
@@ -110,6 +116,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/scrape', requireAuth, scrapeRoutes);
 app.use('/api/leads', requireAuth, leadsRoutes);
 app.use('/api/groq-usage', requireAuth, groqUsageRoutes);
+app.use('/api/campaigns', requireAuth, campaignsRoutes);
 app.use('/demo', demoRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));

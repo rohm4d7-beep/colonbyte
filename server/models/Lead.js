@@ -2,6 +2,64 @@ import mongoose from 'mongoose';
 import { TEMPLATE_KEYS } from '../constants/demoOptions.js';
 import { OPPORTUNITY_CATEGORIES, OPPORTUNITY_CONFIDENCE_LEVELS, DEMO_STRATEGIES } from '../constants/opportunityOptions.js';
 
+// Confirmed against production data before this list replaced the old 3-value enum: 1235
+// 'contacted' + 153 'new', zero 'converted' - so no migration was needed, 'converted' simply
+// never shipped any real data to remap. Ordered roughly by pipeline progression, though nothing
+// enforces leads move through them in order - a human can set any status at any time via
+// PATCH /:id/status.
+export const LEAD_STATUSES = [
+  'new',
+  'contacted',
+  'delivered',
+  'replied',
+  'positive_interest',
+  'qualified',
+  'meeting_scheduled',
+  'demo_sent',
+  'proposal_sent',
+  'negotiation',
+  'won',
+  'lost',
+  'paused',
+  'do_not_contact',
+];
+
+// One label a human typed for a channel's reply, classified once by services/replyClassifier.js
+// at log time. Deliberately not re-classified later even if the classifier's prompt changes -
+// this is a record of what was actually said and judged at the time, not a live view.
+export const REPLY_CHANNELS = ['email', 'whatsapp', 'instagram', 'facebook'];
+export const REPLY_LABELS = ['interested', 'not_interested', 'pricing_inquiry', 'referral', 'opt_out', 'unclear', 'automated'];
+const replyClassificationSchema = new mongoose.Schema(
+  {
+    label: { type: String, enum: REPLY_LABELS },
+    confidence: { type: String, enum: ['low', 'medium', 'high'] },
+    reasoning: { type: String, default: '' },
+  },
+  { _id: false }
+);
+const replySchema = new mongoose.Schema(
+  {
+    channel: { type: String, enum: REPLY_CHANNELS, required: true },
+    text: { type: String, required: true },
+    loggedAt: { type: Date, default: Date.now },
+    classification: { type: replyClassificationSchema },
+  },
+  { _id: false }
+);
+
+const statusHistorySchema = new mongoose.Schema(
+  {
+    status: { type: String, enum: LEAD_STATUSES, required: true },
+    changedAt: { type: Date, default: Date.now },
+    // 'human' = a PATCH /:id/status click; 'system' = an automatic transition (e.g. a send
+    // succeeding, or an opt-out reply triggering do-not-contact) - kept distinct so a future
+    // funnel view can tell "someone manually marked this" from "the pipeline did this on its own."
+    source: { type: String, enum: ['human', 'system'], default: 'human' },
+    note: { type: String, default: '' },
+  },
+  { _id: false }
+);
+
 export const WEBSITE_STATUSES = [
   'none',
   'facebook_only',
@@ -28,8 +86,19 @@ const aiAnalysisSchema = new mongoose.Schema(
     // outreach anyway (see [[project-leadforge-pipeline-issues]] / COLONBYTE brief section 27:
     // Leadforge prepares, a human decides).
     worthContacting: { type: Boolean, default: null },
+    // No default (mirrors opportunityAnalysisSchema's opportunityConfidence) - undefined means
+    // "not analyzed" or "model omitted it," never a false 'low'. See aiAnalysis.js's system
+    // prompt for what each level means; requiresHumanReview below is a deterministic function
+    // of this value, not a separately AI-judged field.
+    qualificationConfidence: { type: String, enum: ['low', 'medium', 'high'] },
     strengths: { type: [String], default: [] },
     weaknesses: { type: [String], default: [] },
+    // Populated only when worthContacting is false - see aiAnalysis.js's system prompt. Distinct
+    // from `weaknesses`, which a qualified (worthContacting: true) business can still have.
+    disqualifyingFactors: { type: [String], default: [] },
+    // true whenever qualificationConfidence is 'low' - see aiAnalysis.js. Surfaced in the
+    // dashboard so a human reviews the verdict before anything downstream treats it as settled.
+    requiresHumanReview: { type: Boolean, default: false },
     // The single strongest, most specific, data-grounded outreach angle for this lead - deliberately
     // singular (not another bullet list) so outreach generation has one concrete thing to build
     // around instead of picking arbitrarily from a pile of suggestions. Empty when worthContacting
@@ -133,6 +202,10 @@ const outreachSchema = new mongoose.Schema(
   {
     subject: { type: String, default: '' },
     body: { type: String, default: '' },
+    // Which version of outreachGenerator.js's SYSTEM_PROMPT produced this message - see that
+    // file's PROMPT_VERSION. Lets a later analytics pass (brief section 12/14) group send
+    // outcomes by prompt strategy instead of only ever seeing the current prompt's results.
+    promptVersion: { type: String, default: '' },
     status: { type: String, enum: ['pending', 'drafted', 'sending', 'sent', 'failed'], default: 'pending' },
     generatedAt: { type: Date, default: null },
     sentAt: { type: Date, default: null },
@@ -149,6 +222,9 @@ const outreachSchema = new mongoose.Schema(
 const whatsappOutreachSchema = new mongoose.Schema(
   {
     message: { type: String, default: '' },
+    // Which version of whatsappOutreachGenerator.js's SYSTEM_PROMPT produced this message -
+    // see outreachSchema's identical field for why.
+    promptVersion: { type: String, default: '' },
     // No 'sent' here - a wa.me click-to-chat link only opens WhatsApp with the message
     // pre-filled, the operator still has to hit send themselves inside WhatsApp, so this app
     // can never actually confirm delivery. 'opened' just means the link was clicked.
@@ -166,6 +242,7 @@ const whatsappOutreachSchema = new mongoose.Schema(
 const instagramOutreachSchema = new mongoose.Schema(
   {
     message: { type: String, default: '' },
+    promptVersion: { type: String, default: '' },
     status: { type: String, enum: ['pending', 'drafted', 'opened', 'failed'], default: 'pending' },
     generatedAt: { type: Date, default: null },
     openedAt: { type: Date, default: null },
@@ -176,6 +253,7 @@ const instagramOutreachSchema = new mongoose.Schema(
 const facebookOutreachSchema = new mongoose.Schema(
   {
     message: { type: String, default: '' },
+    promptVersion: { type: String, default: '' },
     status: { type: String, enum: ['pending', 'drafted', 'opened', 'failed'], default: 'pending' },
     generatedAt: { type: Date, default: null },
     openedAt: { type: Date, default: null },
@@ -190,6 +268,7 @@ const followUpEmailSchema = new mongoose.Schema(
   {
     subject: { type: String, default: '' },
     body: { type: String, default: '' },
+    promptVersion: { type: String, default: '' },
     status: { type: String, enum: ['pending', 'drafted', 'sent', 'failed'], default: 'pending' },
     generatedAt: { type: Date, default: null },
     sentAt: { type: Date, default: null },
@@ -201,6 +280,7 @@ const followUpEmailSchema = new mongoose.Schema(
 const followUpWhatsappSchema = new mongoose.Schema(
   {
     message: { type: String, default: '' },
+    promptVersion: { type: String, default: '' },
     status: { type: String, enum: ['pending', 'drafted', 'opened', 'failed'], default: 'pending' },
     generatedAt: { type: Date, default: null },
     openedAt: { type: Date, default: null },
@@ -214,6 +294,22 @@ const followUpWhatsappSchema = new mongoose.Schema(
 const followUpInstagramSchema = new mongoose.Schema(
   {
     message: { type: String, default: '' },
+    promptVersion: { type: String, default: '' },
+    status: { type: String, enum: ['pending', 'drafted', 'opened', 'failed'], default: 'pending' },
+    generatedAt: { type: Date, default: null },
+    openedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+// Same shape/semantics as followUpInstagramSchema - Facebook has no API-driven send path either
+// (facebookOutreachSchema above), so this is the same manual copy-and-paste-into-the-app
+// follow-up workflow, gated on the original having actually been opened. Previously missing
+// entirely despite WhatsApp and Instagram both having one.
+const followUpFacebookSchema = new mongoose.Schema(
+  {
+    message: { type: String, default: '' },
+    promptVersion: { type: String, default: '' },
     status: { type: String, enum: ['pending', 'drafted', 'opened', 'failed'], default: 'pending' },
     generatedAt: { type: Date, default: null },
     openedAt: { type: Date, default: null },
@@ -265,13 +361,33 @@ const leadSchema = new mongoose.Schema(
     outreachFollowUp: { type: followUpEmailSchema, default: () => ({}) },
     whatsappFollowUp: { type: followUpWhatsappSchema, default: () => ({}) },
     instagramFollowUp: { type: followUpInstagramSchema, default: () => ({}) },
+    facebookFollowUp: { type: followUpFacebookSchema, default: () => ({}) },
     keyword: { type: String, required: true },
-    status: { type: String, enum: ['new', 'contacted', 'converted'], default: 'new' },
+    status: { type: String, enum: LEAD_STATUSES, default: 'new' },
+    statusHistory: { type: [statusHistorySchema], default: [] },
+    // Per-lead suppression (see [[project-leadforge-pipeline-issues]] audit) - scoped to this
+    // one lead record, not globally by email/phone, per explicit product decision. Enforced on
+    // every generate-*/send-* route in routes/leads.js; set automatically when a logged reply
+    // classifies as 'opt_out', or manually via PATCH /:id/do-not-contact.
+    doNotContact: { type: Boolean, default: false },
+    doNotContactReason: { type: String, default: '' },
+    doNotContactAt: { type: Date, default: null },
+    // Manually pasted replies, classified once at log time by services/replyClassifier.js - see
+    // replySchema above. No inbound API capture for any channel (by design, see the audit) -
+    // this is the "paste what they said" flow the product decision landed on instead.
+    replies: { type: [replySchema], default: [] },
+    // The scrape job (models/Campaign.js) this lead was first discovered by - set only on
+    // Lead.create in routes/scrape.js, never overwritten on a later duplicate-merge update, so
+    // re-discovering an existing business in a different campaign doesn't rewrite its original
+    // acquisition source.
+    campaignId: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign' },
   },
   { timestamps: true }
 );
 
 leadSchema.index({ businessName: 1, keyword: 1 });
+leadSchema.index({ doNotContact: 1 });
+leadSchema.index({ campaignId: 1 });
 leadSchema.index({ placeId: 1 }, { unique: true, sparse: true });
 leadSchema.index({ normalizedPhone: 1 }, { sparse: true });
 leadSchema.index({ websiteDomain: 1 }, { sparse: true });
@@ -279,6 +395,7 @@ leadSchema.index({ lat: 1, lng: 1 }, { sparse: true });
 leadSchema.index({ countryCode: 1 });
 leadSchema.index({ websiteStatus: 1 });
 leadSchema.index({ highPriority: 1 });
+leadSchema.index({ 'aiAnalysis.requiresHumanReview': 1 });
 leadSchema.index({ rating: 1 });
 leadSchema.index({ 'aiAnalysis.status': 1 });
 leadSchema.index({ 'outreach.status': 1 });

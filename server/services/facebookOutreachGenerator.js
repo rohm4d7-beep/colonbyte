@@ -1,5 +1,9 @@
 import { groqFetch } from './groqClient.js';
 
+// See outreachGenerator.js's identical constant - bumped whenever SYSTEM_PROMPT/
+// FOLLOWUP_SYSTEM_PROMPT changes meaningfully, stored on every generated message.
+const PROMPT_VERSION = 'v1';
+
 const RESPONSE_SCHEMA = {
   name: 'facebook_outreach',
   strict: true,
@@ -67,6 +71,42 @@ const SYSTEM_PROMPT =
   'If demoUrl is present in the facts (MODE B), the message MUST include that exact URL, unaltered. If ' +
   'demoUrl is absent (MODE A), the message must contain no link of any kind. Never restate the aiSummary ' +
   'field as a sentence; read it for facts and write your own words.';
+
+const FOLLOWUP_SYSTEM_PROMPT =
+  'You are writing on behalf of the same small website agency team, sending a short Facebook Messenger ' +
+  'follow-up, since the business hasn\'t replied to the first message yet. Write in first person PLURAL ' +
+  'throughout - "we"/"our"/"us", never "I"/"my"/"me" - matching the "The Colonbyte Team" sign-off. You ' +
+  'will be given the ORIGINAL message already sent as context - do not repeat its content or re-explain ' +
+  'the demo from scratch, they already read it.\n\n' +
+  'The facts include a demoUrl only when a demo has been prepared AND the sender has chosen to attach it ' +
+  'to THIS message - most follow-ups will NOT have one.\n\n' +
+  'If demoUrl is absent: a brief, casual, low-pressure nudge with no demo to mention - "still around if ' +
+  'you want to chat" or a small new angle if the facts genuinely support one. Do not invent or imply a ' +
+  'demo exists. 10-25 words.\n\n' +
+  'If demoUrl is present: same casual, low-pressure nudge, but now with something to point to - "put ' +
+  'together a quick preview, still around if you want to take a look" plus the link (they may not have ' +
+  'clicked it). 15-30 words.\n\n' +
+  'Hard bans: "just checking in", "following up", "circling back", "bumping this", "any update?", em ' +
+  'dashes, en dashes, or non-breaking hyphens anywhere (use a plain ASCII hyphen for compound words), ' +
+  'guilt-tripping or pressure language, restating the demo\'s tagline, any formal email opener/closer. No ' +
+  'ALL CAPS, at most one emoji only if natural.\n\n' +
+  'If websiteStatus is "unverified": their site did not load for our check (likely bot protection) - we ' +
+  'have NO evidence it is bad or needs "verifying" in any SEO/Google-listing sense. NEVER frame it as ' +
+  'something wrong with their site. If you mention it at all, say only that it still would not load for ' +
+  'you, nothing more.\n\n' +
+  'If demoUrl is present in the facts, the message MUST include that exact URL, unaltered. If demoUrl is ' +
+  'absent, the message must contain no link of any kind. After the message, on its own new line with ' +
+  'nothing after it, sign off with exactly "The Colonbyte Team" - no "regards"/"best"/dash before it, no ' +
+  'period after it.';
+
+// Same fix as outreachGenerator.js's STRUCTURE_VARIANTS - see whatsappOutreachGenerator.js's
+// identical comment for why a prompt-only "vary the opener" instruction doesn't work in practice.
+const STRUCTURE_VARIANTS = [
+  'Open with the observation as its own short, plain sentence. Add the reasoning as a separate short sentence after it, not a dash-linked clause. End with a plain, direct question.',
+  'Open by leading with the question itself, weaving the observation into the same sentence as part of the reasoning behind asking it.',
+  'Open with a very short, blunt statement of the observation (5-10 words), no lead-in. Follow with one sentence of reasoning. Close with a curious, informal question.',
+  'Open with a quick, casual aside about their business before naming the specific observation, then the question.',
+];
 
 function buildFacts(lead, { includeDemo = false } = {}) {
   const demoCompleted = lead.demoSite?.status === 'completed';
@@ -144,8 +184,27 @@ function ensureSignOff(message) {
  * per-call choice (see buildFacts), same policy as outreachGenerator.js/whatsappOutreachGenerator.js.
  */
 export async function generateFacebookOutreach(lead, { includeDemo = false } = {}) {
-  const userPrompt = `Draft a Facebook Messenger message for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}`;
+  const shape = STRUCTURE_VARIANTS[Math.floor(Math.random() * STRUCTURE_VARIANTS.length)];
+  const userPrompt =
+    `Draft a Facebook Messenger message for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}\n\n` +
+    `Structural shape to use for THIS message specifically (different messages use different shapes - ` +
+    `follow this one rather than defaulting to your own default pattern): ${shape}`;
   const result = await callGroqForMessage(SYSTEM_PROMPT, userPrompt);
   if (!result) return { status: 'failed' };
-  return { ...result, status: 'drafted', generatedAt: new Date() };
+  return { ...result, promptVersion: PROMPT_VERSION, status: 'drafted', generatedAt: new Date() };
+}
+
+/**
+ * Requires lead.facebookOutreach.status === 'opened' (routes/leads.js enforces this) - the
+ * follow-up references the original message as context so it doesn't repeat the pitch. Mirrors
+ * generateFollowUpInstagram/generateFollowUpWhatsapp - Facebook was previously missing this
+ * follow-up entirely despite having the same manual copy-and-paste workflow as those two channels.
+ */
+export async function generateFollowUpFacebook(lead, { includeDemo = false } = {}) {
+  const userPrompt =
+    `The ORIGINAL Facebook Messenger message already sent:\n${JSON.stringify({ message: lead.facebookOutreach.message }, null, 2)}\n\n` +
+    `Draft a brief Facebook Messenger follow-up for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}`;
+  const result = await callGroqForMessage(FOLLOWUP_SYSTEM_PROMPT, userPrompt);
+  if (!result) return { status: 'failed' };
+  return { ...result, promptVersion: PROMPT_VERSION, status: 'drafted', generatedAt: new Date() };
 }

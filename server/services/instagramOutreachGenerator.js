@@ -1,5 +1,9 @@
 import { groqFetch } from './groqClient.js';
 
+// See outreachGenerator.js's identical constant - bumped whenever SYSTEM_PROMPT/
+// FOLLOWUP_SYSTEM_PROMPT changes meaningfully, stored on every generated message.
+const PROMPT_VERSION = 'v1';
+
 const RESPONSE_SCHEMA = {
   name: 'instagram_outreach',
   strict: true,
@@ -94,6 +98,15 @@ const FOLLOWUP_SYSTEM_PROMPT =
   'nothing after it, sign off with exactly "The Colonbyte Team" - no "regards"/"best"/dash before it, no ' +
   'period after it.';
 
+// Same fix as outreachGenerator.js's STRUCTURE_VARIANTS - see whatsappOutreachGenerator.js's
+// identical comment for why a prompt-only "vary the opener" instruction doesn't work in practice.
+const STRUCTURE_VARIANTS = [
+  'Open with the observation as its own short, plain sentence. Add the reasoning as a separate short sentence after it, not a dash-linked clause. End with a plain, direct question.',
+  'Open by leading with the question itself, weaving the observation into the same sentence as part of the reasoning behind asking it.',
+  'Open with a very short, blunt statement of the observation (5-10 words), no lead-in. Follow with one sentence of reasoning. Close with a curious, informal question.',
+  'Open with a quick, casual aside about their business before naming the specific observation, then the question.',
+];
+
 function buildFacts(lead, { includeDemo = false } = {}) {
   const demoCompleted = lead.demoSite?.status === 'completed';
   const opportunity = lead.opportunityAnalysis;
@@ -170,10 +183,14 @@ function ensureSignOff(message) {
  * per-call choice (see buildFacts), same policy as outreachGenerator.js/whatsappOutreachGenerator.js.
  */
 export async function generateInstagramOutreach(lead, { includeDemo = false } = {}) {
-  const userPrompt = `Draft an Instagram DM for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}`;
+  const shape = STRUCTURE_VARIANTS[Math.floor(Math.random() * STRUCTURE_VARIANTS.length)];
+  const userPrompt =
+    `Draft an Instagram DM for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}\n\n` +
+    `Structural shape to use for THIS message specifically (different messages use different shapes - ` +
+    `follow this one rather than defaulting to your own default pattern): ${shape}`;
   const result = await callGroqForMessage(SYSTEM_PROMPT, userPrompt);
   if (!result) return { status: 'failed' };
-  return { ...result, status: 'drafted', generatedAt: new Date() };
+  return { ...result, promptVersion: PROMPT_VERSION, status: 'drafted', generatedAt: new Date() };
 }
 
 /**
@@ -187,5 +204,5 @@ export async function generateFollowUpInstagram(lead, { includeDemo = false } = 
     `Draft a brief Instagram DM follow-up for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}`;
   const result = await callGroqForMessage(FOLLOWUP_SYSTEM_PROMPT, userPrompt);
   if (!result) return { status: 'failed' };
-  return { ...result, status: 'drafted', generatedAt: new Date() };
+  return { ...result, promptVersion: PROMPT_VERSION, status: 'drafted', generatedAt: new Date() };
 }

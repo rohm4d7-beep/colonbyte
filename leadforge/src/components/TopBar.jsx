@@ -4,6 +4,7 @@ import API_BASE, { apiFetch } from '../config';
 const navItems = [
   { to: '/', label: 'Dashboard' },
   { to: '/leads', label: 'Leads' },
+  { to: '/campaigns', label: 'Campaigns' },
 ];
 
 export default function TopBar({ userEmail, onLoggedOut }) {

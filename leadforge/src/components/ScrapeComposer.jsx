@@ -154,6 +154,7 @@ export default function ScrapeComposer({ onDone }) {
   const [keyword, setKeyword] = useState('');
   const [country, setCountry] = useState('');
   const [requireContact, setRequireContact] = useState(true);
+  const [prioritizeContact, setPrioritizeContact] = useState(false);
   const [jobId, setJobId] = useState(null);
   const [progress, setProgress] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -243,7 +244,7 @@ export default function ScrapeComposer({ onDone }) {
       const res = await apiFetch(`${API_BASE}/api/scrape/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keyword: keyword.trim(), country, requireContact }),
+        body: JSON.stringify({ keyword: keyword.trim(), country, requireContact, prioritizeContact }),
       });
 
       if (!res.ok) {
@@ -274,6 +275,7 @@ export default function ScrapeComposer({ onDone }) {
   const noEmail = progress?.noEmail || 0;
   const errored = progress?.errored || 0;
   const blocked = progress?.blocked || false;
+  const searchFailed = progress?.searchFailed || false;
   const searchingTerm = progress?.searchingTerm || '';
   const pct = found > 0 ? Math.min(Math.round((processed / found) * 100), 100) : jobId ? 6 : 0;
   const statusLine = found === 0 ? 'Searching Google Maps for' : 'Verifying & extracting for';
@@ -294,6 +296,19 @@ export default function ScrapeComposer({ onDone }) {
               <AlertIcon className="w-4 h-4 shrink-0" style={{ color: 'var(--color-danger)' }} />
               <p className="text-[13px] truncate" style={{ color: 'var(--color-danger)' }}>
                 {errorMessage}
+              </p>
+              <button
+                onClick={reset}
+                className="ml-auto shrink-0 text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150"
+              >
+                Dismiss
+              </button>
+            </motion.div>
+          ) : isDone && searchFailed ? (
+            <motion.div key="search-failed" {...fade} className="flex items-center gap-3 flex-1 min-w-0">
+              <AlertIcon className="w-4 h-4 shrink-0" style={{ color: 'var(--color-danger)' }} />
+              <p className="text-[13px] truncate" style={{ color: 'var(--color-danger)' }}>
+                Search failed — Google Maps never returned results for "{keyword}". This isn't a genuinely empty search; check the server logs.
               </p>
               <button
                 onClick={reset}
@@ -406,6 +421,15 @@ export default function ScrapeComposer({ onDone }) {
                   className="w-3.5 h-3.5"
                 />
                 Email/IG/FB only
+              </label>
+              <label className="flex items-center gap-1.5 shrink-0 text-[12.5px] text-text-2 cursor-pointer select-none" title="Skip Facebook-only and phone/WhatsApp-only leads — only keeps leads with an email or Instagram">
+                <input
+                  type="checkbox"
+                  checked={prioritizeContact}
+                  onChange={e => setPrioritizeContact(e.target.checked)}
+                  className="w-3.5 h-3.5"
+                />
+                Email/IG priority
               </label>
               <div className="w-px h-4 shrink-0" style={{ background: 'var(--color-border)' }} />
               <CountryPicker value={country} onChange={setCountry} />

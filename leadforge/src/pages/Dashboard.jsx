@@ -28,9 +28,10 @@ export default function Dashboard() {
     total: 0,
     emails: 0,
     contacted: 0,
-    converted: 0,
+    won: 0,
     websiteMissing: 0,
     highPriority: 0,
+    needsReview: 0,
   });
   const [recent, setRecent] = useState([]);
   const [resetting, setResetting] = useState(false);
@@ -94,7 +95,7 @@ export default function Dashboard() {
         <ScrapeComposer onDone={fetchStats} />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
         <Link
           to="/leads?websiteStatus=none"
           className="relative rounded-[28px] p-6 overflow-hidden block transition-transform duration-150 hover:scale-[0.99]"
@@ -112,6 +113,15 @@ export default function Dashboard() {
           <ArrowIcon className="absolute top-6 right-6 w-4 h-4 opacity-60" />
           <div className="text-[11px] font-semibold uppercase tracking-wider opacity-70 mb-3">High Priority Leads</div>
           <div className="text-[64px] leading-[0.9] font-bold tracking-tight tnum">{stats.highPriority}</div>
+        </Link>
+        <Link
+          to="/leads?requiresReview=true"
+          className="relative rounded-[28px] p-6 overflow-hidden block transition-transform duration-150 hover:scale-[0.99]"
+          style={{ background: 'var(--color-surface-2)', color: 'var(--color-text)' }}
+        >
+          <ArrowIcon className="absolute top-6 right-6 w-4 h-4 opacity-60" />
+          <div className="text-[11px] font-semibold uppercase tracking-wider opacity-70 mb-3">Needs Review</div>
+          <div className="text-[64px] leading-[0.9] font-bold tracking-tight tnum">{stats.needsReview}</div>
         </Link>
       </div>
 

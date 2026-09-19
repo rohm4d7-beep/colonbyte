@@ -1,5 +1,11 @@
 import { groqFetch } from './groqClient.js';
 
+// Bumped whenever SYSTEM_PROMPT/FOLLOWUP_SYSTEM_PROMPT changes meaningfully - stored on every
+// generated message (see models/Lead.js's outreachSchema.promptVersion) so a later analytics
+// pass (brief section 12/14) can compare outcomes across prompt strategies instead of only ever
+// seeing whatever the current prompt happens to be.
+const PROMPT_VERSION = 'v1';
+
 const RESPONSE_SCHEMA = {
   name: 'outreach_email',
   strict: true,
@@ -247,7 +253,7 @@ export async function generateOutreach(lead, { includeDemo = false } = {}) {
     `follow this one rather than defaulting to your own default pattern): ${shape}`;
   const result = await callGroqForEmail(SYSTEM_PROMPT, userPrompt);
   if (!result) return { status: 'failed' };
-  return { ...result, status: 'drafted', generatedAt: new Date() };
+  return { ...result, promptVersion: PROMPT_VERSION, status: 'drafted', generatedAt: new Date() };
 }
 
 /**
@@ -261,5 +267,5 @@ export async function generateFollowUpEmail(lead, { includeDemo = false } = {}) 
     `Draft a brief follow-up for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}`;
   const result = await callGroqForEmail(FOLLOWUP_SYSTEM_PROMPT, userPrompt);
   if (!result) return { status: 'failed' };
-  return { ...result, status: 'drafted', generatedAt: new Date() };
+  return { ...result, promptVersion: PROMPT_VERSION, status: 'drafted', generatedAt: new Date() };
 }

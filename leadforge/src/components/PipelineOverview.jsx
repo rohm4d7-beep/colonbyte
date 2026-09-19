@@ -30,14 +30,18 @@ function CountUp({ value }) {
 }
 
 export default function PipelineOverview({ stats }) {
-  const { total = 0, emails = 0, contacted = 0, converted = 0 } = stats;
-  const newCount = Math.max(total - contacted - converted, 0);
+  const { total = 0, emails = 0, contacted = 0, won = 0 } = stats;
+  // A coarse 3-bucket view, not the full status lifecycle (see server/models/Lead.js's
+  // LEAD_STATUSES) - the richer funnel breakdown is still a later phase; this only needs to
+  // stay honest about the two states it does track. `newCount` catches everything that isn't
+  // literally 'contacted' or 'won' (replied/qualified/lost/etc. all land here for now).
+  const newCount = Math.max(total - contacted - won, 0);
   const coverage = total > 0 ? Math.round((emails / total) * 100) : 0;
 
   const segments = [
     { key: 'new', label: 'New', value: newCount, color: 'rgba(255,255,255,0.25)' },
     { key: 'contacted', label: 'Contacted', value: contacted, color: 'var(--color-accent-3)' },
-    { key: 'converted', label: 'Converted', value: converted, color: 'var(--color-success)' },
+    { key: 'won', label: 'Won', value: won, color: 'var(--color-success)' },
   ];
 
   return (

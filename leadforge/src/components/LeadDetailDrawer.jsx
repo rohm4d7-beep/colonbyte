@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import WebsiteStatusBadge from './WebsiteStatusBadge';
+import StatusBadge from './StatusBadge';
 import { useConfirm } from './ConfirmDialog';
 import API_BASE, { apiFetch } from '../config';
 import { OPPORTUNITY_LABELS } from '../constants/opportunityLabels';
+import { REPLY_CHANNELS, REPLY_CHANNEL_LABELS, REPLY_LABEL_META, STATUS_LABELS, recommendedOutreachChannel } from '../constants/leadStatus';
 
 const DEMO_STRATEGY_COPY = {
   NO_DEMO: 'Not usually needed for this kind of opportunity.',
@@ -179,9 +181,29 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const [facebookError, setFacebookError] = useState(null);
   const [facebookMessage, setFacebookMessage] = useState('');
   const [facebookCopied, setFacebookCopied] = useState(false);
+  const [generatingFollowUpFacebook, setGeneratingFollowUpFacebook] = useState(false);
+  const [includeDemoInFollowUpFacebook, setIncludeDemoInFollowUpFacebook] = useState(false);
+  const [savingFollowUpFacebookDraft, setSavingFollowUpFacebookDraft] = useState(false);
+  const [followUpFacebookError, setFollowUpFacebookError] = useState(null);
+  const [followUpFacebookMessage, setFollowUpFacebookMessage] = useState('');
+  const [followUpFacebookCopied, setFollowUpFacebookCopied] = useState(false);
+  const [confirmingDoNotContact, setConfirmingDoNotContact] = useState(false);
+  const [showStatusHistory, setShowStatusHistory] = useState(false);
+  const [togglingDoNotContact, setTogglingDoNotContact] = useState(false);
+  const [doNotContactReasonInput, setDoNotContactReasonInput] = useState('');
+  const [doNotContactError, setDoNotContactError] = useState(null);
+  const [replyChannel, setReplyChannel] = useState('email');
+  const [replyText, setReplyText] = useState('');
+  const [loggingReply, setLoggingReply] = useState(false);
+  const [replyError, setReplyError] = useState(null);
 
   useEffect(() => {
     setRecheckError(null);
+    setReplyText('');
+    setReplyError(null);
+    setDoNotContactReasonInput('');
+    setDoNotContactError(null);
+    setConfirmingDoNotContact(false);
   }, [lead?._id]);
 
   useEffect(() => {
@@ -223,6 +245,12 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     setFacebookError(null);
     setFacebookCopied(false);
   }, [lead?._id, lead?.facebookOutreach?.generatedAt]);
+
+  useEffect(() => {
+    setFollowUpFacebookMessage(lead?.facebookFollowUp?.message || '');
+    setFollowUpFacebookError(null);
+    setFollowUpFacebookCopied(false);
+  }, [lead?._id, lead?.facebookFollowUp?.generatedAt]);
 
   const handleAnalyze = async () => {
     if (!lead) return;
@@ -354,6 +382,55 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
       setOutreachError(err.message || 'Failed to save draft.');
     } finally {
       setSavingDraft(false);
+    }
+  };
+
+  const handleToggleDoNotContact = async (next) => {
+    if (!lead) return;
+    setTogglingDoNotContact(true);
+    setDoNotContactError(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/do-not-contact`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ doNotContact: next, reason: doNotContactReasonInput }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to update.');
+      }
+      const updated = await res.json();
+      onUpdated?.(updated);
+      setDoNotContactReasonInput('');
+      setConfirmingDoNotContact(false);
+    } catch (err) {
+      setDoNotContactError(err.message || 'Failed to update.');
+    } finally {
+      setTogglingDoNotContact(false);
+    }
+  };
+
+  const handleLogReply = async () => {
+    if (!lead || !replyText.trim()) return;
+    setLoggingReply(true);
+    setReplyError(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/replies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: replyChannel, text: replyText.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to log reply.');
+      }
+      const updated = await res.json();
+      onUpdated?.(updated);
+      setReplyText('');
+    } catch (err) {
+      setReplyError(err.message || 'Failed to log reply.');
+    } finally {
+      setLoggingReply(false);
     }
   };
 
@@ -649,6 +726,73 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
     }
   };
 
+  const handleGenerateFollowUpFacebook = async () => {
+    if (!lead) return;
+    setGeneratingFollowUpFacebook(true);
+    setFollowUpFacebookError(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/generate-followup-facebook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ includeDemo: includeDemoInFollowUpFacebook }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Follow-up draft generation failed.');
+      }
+      const updated = await res.json();
+      onUpdated?.(updated);
+    } catch (err) {
+      setFollowUpFacebookError(err.message || 'Follow-up draft generation failed.');
+    } finally {
+      setGeneratingFollowUpFacebook(false);
+    }
+  };
+
+  const saveFollowUpFacebookDraft = async () => {
+    const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/followup-facebook`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: followUpFacebookMessage }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to save draft.');
+    }
+    return res.json();
+  };
+
+  const handleSaveFollowUpFacebookDraft = async () => {
+    if (!lead) return;
+    setSavingFollowUpFacebookDraft(true);
+    setFollowUpFacebookError(null);
+    try {
+      const updated = await saveFollowUpFacebookDraft();
+      onUpdated?.(updated);
+    } catch (err) {
+      setFollowUpFacebookError(err.message || 'Failed to save draft.');
+    } finally {
+      setSavingFollowUpFacebookDraft(false);
+    }
+  };
+
+  // Same no-deep-link limitation as the original Facebook message (see handleCopyAndOpenFacebook).
+  const handleCopyAndOpenFollowUpFacebook = async () => {
+    if (!lead) return;
+    setFollowUpFacebookError(null);
+    try {
+      await saveFollowUpFacebookDraft();
+      await navigator.clipboard.writeText(followUpFacebookMessage);
+      setFollowUpFacebookCopied(true);
+      setTimeout(() => setFollowUpFacebookCopied(false), 4000);
+      window.open(lead.facebookUrl, '_blank', 'noopener,noreferrer');
+      const res = await apiFetch(`${API_BASE}/api/leads/${lead._id}/followup-facebook-opened`, { method: 'POST' });
+      if (res.ok) onUpdated?.(await res.json());
+    } catch (err) {
+      setFollowUpFacebookError(err.message || 'Could not copy message or open Facebook.');
+    }
+  };
+
   const handleGenerateFollowUpEmail = async () => {
     if (!lead) return;
     setGeneratingFollowUpEmail(true);
@@ -782,6 +926,8 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
   const facebookOutreach = lead?.facebookOutreach;
   const facebookStatus = facebookOutreach?.status || 'pending';
   const facebookReady = outreachReady && !!lead?.facebookUrl;
+  const followUpFacebook = lead?.facebookFollowUp;
+  const followUpFacebookStatus = followUpFacebook?.status || 'pending';
 
   return (
     <AnimatePresence>
@@ -826,6 +972,17 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
             <div className="p-5 space-y-6">
               <Section label="Contact">
                 <div className="space-y-1.5 text-[13px]">
+                  {recommendedOutreachChannel(lead) && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-text-3">Recommended Channel</span>
+                      <span
+                        className="text-[10.5px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full"
+                        style={{ background: 'var(--color-surface-2)', color: 'var(--color-accent)' }}
+                      >
+                        {REPLY_CHANNEL_LABELS[recommendedOutreachChannel(lead)]}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between gap-3">
                     <span className="text-text-3">Email</span>
                     <span className="text-text text-right">{lead.email || '—'}</span>
@@ -869,6 +1026,88 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                     <span className="text-text text-right">{lead.country || '—'}</span>
                   </div>
                 </div>
+              </Section>
+
+              <Section label="Status">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <StatusBadge status={lead.status} />
+                  {!lead.doNotContact && !confirmingDoNotContact ? (
+                    <button
+                      onClick={() => setConfirmingDoNotContact(true)}
+                      className="text-[12px] font-medium text-danger hover:opacity-80 transition-opacity duration-150"
+                    >
+                      Mark do-not-contact
+                    </button>
+                  ) : null}
+                </div>
+                {lead.doNotContact ? (
+                  <div className="rounded-2xl px-3 py-2.5 space-y-2" style={{ background: 'var(--color-danger-soft)' }}>
+                    <p className="text-[12.5px]" style={{ color: 'var(--color-danger)' }}>
+                      This lead is suppressed{lead.doNotContactReason ? `: ${lead.doNotContactReason}` : ''}. No new drafts or sends are allowed.
+                    </p>
+                    <button
+                      onClick={() => handleToggleDoNotContact(false)}
+                      disabled={togglingDoNotContact}
+                      className="text-[12px] font-medium underline disabled:opacity-60"
+                      style={{ color: 'var(--color-danger)' }}
+                    >
+                      Remove suppression
+                    </button>
+                  </div>
+                ) : confirmingDoNotContact ? (
+                  <div className="rounded-2xl px-3 py-2.5 space-y-2" style={{ background: 'var(--color-surface-2)' }}>
+                    <input
+                      type="text"
+                      placeholder="Reason (optional)"
+                      value={doNotContactReasonInput}
+                      onChange={(e) => setDoNotContactReasonInput(e.target.value)}
+                      className="w-full text-[12.5px] px-2.5 py-1.5 rounded-lg outline-none border"
+                      style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleToggleDoNotContact(true)}
+                        disabled={togglingDoNotContact}
+                        className="h-7 px-3 rounded-full text-[12px] font-medium disabled:opacity-60"
+                        style={{ background: 'var(--color-danger)', color: '#ffffff' }}
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setConfirmingDoNotContact(false)}
+                        className="text-[12px] font-medium text-text-3 hover:text-text transition-colors duration-150"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                {doNotContactError && <p className="text-[12px] mt-1.5" style={{ color: 'var(--color-danger)' }}>{doNotContactError}</p>}
+
+                {lead.statusHistory?.length > 0 && (
+                  <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--color-border)' }}>
+                    <button
+                      onClick={() => setShowStatusHistory((v) => !v)}
+                      className="text-[12px] font-medium text-text-2 hover:text-text transition-colors duration-150"
+                    >
+                      {showStatusHistory ? 'Hide history' : `Show history (${lead.statusHistory.length})`}
+                    </button>
+                    {showStatusHistory && (
+                      <ul className="mt-2 space-y-2">
+                        {[...lead.statusHistory].reverse().map((h, i) => (
+                          <li key={i} className="text-[12px] flex items-start justify-between gap-3">
+                            <span className="text-text-2">
+                              <span className="text-text font-medium">{STATUS_LABELS[h.status] || h.status}</span>
+                              <span className="text-text-3"> · {h.source === 'system' ? 'automatic' : 'manual'}</span>
+                              {h.note && <span className="text-text-3"> — {h.note}</span>}
+                            </span>
+                            <span className="text-text-3 whitespace-nowrap shrink-0">{new Date(h.changedAt).toLocaleString()}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
               </Section>
 
               <Section label="Google Maps signals">
@@ -927,27 +1166,53 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
               <Section label="AI Business Report">
                 {analysisStatus === 'completed' ? (
                   <div className="space-y-4">
+                    {analysis.requiresHumanReview && (
+                      <div
+                        className="text-[12px] font-medium rounded-2xl px-3 py-2"
+                        style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-2)' }}
+                      >
+                        Low-confidence qualification — worth a human double-check before acting on this verdict.
+                      </div>
+                    )}
                     <div className="flex items-start justify-between gap-3">
                       <p className="text-[13px] text-text-2 leading-relaxed">{analysis.summary}</p>
-                      {typeof analysis.worthContacting === 'boolean' && (
-                        <span
-                          className="shrink-0 text-[10.5px] font-medium uppercase tracking-wider px-2 py-1 rounded-full"
-                          style={
-                            analysis.worthContacting
-                              ? { background: 'rgba(34,197,94,0.15)', color: 'var(--color-success, #22c55e)' }
-                              : { background: 'var(--color-surface-2)', color: 'var(--color-text-3)' }
-                          }
-                        >
-                          {analysis.worthContacting ? 'Worth contacting' : 'No strong angle'}
-                        </span>
-                      )}
+                      <div className="shrink-0 flex flex-col items-end gap-1.5">
+                        {typeof analysis.worthContacting === 'boolean' && (
+                          <span
+                            className="text-[10.5px] font-medium uppercase tracking-wider px-2 py-1 rounded-full"
+                            style={
+                              analysis.worthContacting
+                                ? { background: 'rgba(34,197,94,0.15)', color: 'var(--color-success, #22c55e)' }
+                                : { background: 'var(--color-surface-2)', color: 'var(--color-text-3)' }
+                            }
+                          >
+                            {analysis.worthContacting ? 'Worth contacting' : 'No strong angle'}
+                          </span>
+                        )}
+                        {analysis.qualificationConfidence && (
+                          <span
+                            className="text-[10.5px] font-medium uppercase tracking-wider px-2 py-1 rounded-full"
+                            style={{ background: 'var(--color-surface-2)', color: CONFIDENCE_COLOR[analysis.qualificationConfidence] }}
+                          >
+                            {analysis.qualificationConfidence} confidence
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {analysis.worthContacting === false ? (
-                      <p className="text-[12.5px] text-text-3 rounded-2xl p-3" style={{ background: 'var(--color-surface-2)' }}>
-                        No strong outreach angle found for this lead. You can still draft outreach manually if you
-                        know something the data doesn't show.
-                      </p>
+                      <div className="space-y-3">
+                        <p className="text-[12.5px] text-text-3 rounded-2xl p-3" style={{ background: 'var(--color-surface-2)' }}>
+                          No strong outreach angle found for this lead. You can still draft outreach manually if you
+                          know something the data doesn't show.
+                        </p>
+                        {analysis.disqualifyingFactors?.length > 0 && (
+                          <div>
+                            <div className="text-[11px] font-medium uppercase tracking-wider text-text-3 mb-2">Disqualifying Factors</div>
+                            <BulletList items={analysis.disqualifyingFactors} color="var(--color-danger)" />
+                          </div>
+                        )}
+                      </div>
                     ) : analysis.opportunity ? (
                       <div>
                         <div className="text-[11px] font-medium uppercase tracking-wider text-text-3 mb-2">Primary Opportunity</div>
@@ -992,7 +1257,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                       onClick={handleAnalyze}
                       disabled={analyzing}
                       className="flex items-center gap-1.5 h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
-                      style={{ background: 'var(--color-accent)', color: '#ffffff' }}
+                      style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
                     >
                       {analyzing && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
                       {analyzing ? 'Analyzing…' : analysisStatus === 'failed' ? 'Retry Analysis' : 'Analyze Now'}
@@ -1083,7 +1348,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                         target="_blank"
                         rel="noreferrer"
                         className="flex-1 flex items-center justify-center h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-all duration-150 hover:brightness-110"
-                        style={{ background: 'var(--color-accent-2)', color: 'var(--color-on-accent-2)' }}
+                        style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
                       >
                         Preview Demo
                       </a>
@@ -1121,7 +1386,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                       onClick={handleGenerateDemo}
                       disabled={generatingDemo}
                       className="flex items-center gap-1.5 h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
-                      style={{ background: 'var(--color-accent-2)', color: 'var(--color-on-accent-2)' }}
+                      style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
                     >
                       {generatingDemo && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
                       {generatingDemo ? 'Generating…' : demoStatus === 'failed' ? 'Retry Generation' : 'Generate Demo'}
@@ -1186,7 +1451,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                               onClick={handleSendFollowUpEmail}
                               disabled={sendingFollowUpEmail || !followUpSubject.trim() || !followUpBody.trim()}
                               className="flex-1 flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
-                              style={{ background: 'var(--color-accent)', color: '#ffffff' }}
+                              style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
                             >
                               {sendingFollowUpEmail && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
                               {sendingFollowUpEmail ? 'Sending…' : 'Send Follow-up'}
@@ -1247,7 +1512,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                         onClick={handleSendOutreach}
                         disabled={sending || savingDraft || !subject.trim() || !body.trim() || !lead.email || !isOutreachEligible(lead)}
                         className="flex-1 flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
-                        style={{ background: 'var(--color-accent)', color: '#ffffff' }}
+                        style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
                       >
                         {sending && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
                         {sending ? 'Sending…' : 'Send Email'}
@@ -1290,7 +1555,7 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                       onClick={handleGenerateOutreach}
                       disabled={generatingOutreach || !outreachReady}
                       className="flex items-center gap-1.5 h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
-                      style={{ background: 'var(--color-accent)', color: '#ffffff' }}
+                      style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
                     >
                       {generatingOutreach && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
                       {generatingOutreach ? 'Drafting…' : outreachStatus === 'failed' ? 'Retry Draft' : 'Draft Outreach Email'}
@@ -1635,6 +1900,80 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                       {facebookCopied ? 'Copied!' : 'Copy again & open'}
                     </button>
                     {facebookError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{facebookError}</p>}
+
+                    <div className="pt-2 border-t" style={{ borderColor: 'var(--color-border)' }}>
+                      {followUpFacebookStatus === 'opened' ? (
+                        <div className="space-y-2 pt-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wider text-text-3">Follow-up</p>
+                          <div className="rounded-2xl p-3" style={{ background: 'var(--color-surface-2)' }}>
+                            <p className="text-[12.5px] text-text-2 whitespace-pre-wrap leading-relaxed">{followUpFacebook.message}</p>
+                          </div>
+                          <p className="text-[11.5px] text-text-3">
+                            Copied and opened {followUpFacebook.openedAt ? new Date(followUpFacebook.openedAt).toLocaleString() : ''}
+                          </p>
+                          <button
+                            onClick={handleCopyAndOpenFollowUpFacebook}
+                            className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150"
+                          >
+                            {followUpFacebookCopied ? 'Copied!' : 'Copy again & open'}
+                          </button>
+                        </div>
+                      ) : followUpFacebookStatus === 'drafted' ? (
+                        <div className="space-y-2 pt-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wider text-text-3">Follow-up</p>
+                          <textarea
+                            value={followUpFacebookMessage}
+                            onChange={(e) => setFollowUpFacebookMessage(e.target.value)}
+                            maxLength={2000}
+                            rows={4}
+                            className="w-full px-2.5 py-2 rounded-xl text-[12.5px] text-text border resize-y leading-relaxed"
+                            style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
+                            placeholder="Message"
+                          />
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={handleCopyAndOpenFollowUpFacebook}
+                              disabled={savingFollowUpFacebookDraft || !followUpFacebookMessage.trim()}
+                              className="flex-1 flex items-center justify-center h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
+                              style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
+                            >
+                              {followUpFacebookCopied ? 'Copied!' : 'Copy Follow-up & Open'}
+                            </button>
+                            <button
+                              onClick={handleSaveFollowUpFacebookDraft}
+                              disabled={savingFollowUpFacebookDraft}
+                              className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                            >
+                              {savingFollowUpFacebookDraft ? 'Saving…' : 'Save Draft'}
+                            </button>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <button
+                              onClick={handleGenerateFollowUpFacebook}
+                              disabled={generatingFollowUpFacebook}
+                              className="text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                            >
+                              {generatingFollowUpFacebook ? 'Regenerating…' : 'Regenerate'}
+                            </button>
+                            <DemoToggle checked={includeDemoInFollowUpFacebook} onChange={setIncludeDemoInFollowUpFacebook} demoReady={demoStatus === 'completed'} />
+                          </div>
+                          {followUpFacebookError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{followUpFacebookError}</p>}
+                        </div>
+                      ) : (
+                        <div className="pt-3 space-y-1.5">
+                          <button
+                            onClick={handleGenerateFollowUpFacebook}
+                            disabled={generatingFollowUpFacebook}
+                            className="flex items-center gap-1.5 h-8 px-3.5 rounded-full text-[12.5px] font-medium text-text-2 hover:text-text transition-colors duration-150 disabled:opacity-50"
+                          >
+                            {generatingFollowUpFacebook && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
+                            {generatingFollowUpFacebook ? 'Drafting…' : followUpFacebookStatus === 'failed' ? 'Retry Follow-up' : 'Draft Follow-up'}
+                          </button>
+                          <DemoToggle checked={includeDemoInFollowUpFacebook} onChange={setIncludeDemoInFollowUpFacebook} demoReady={demoStatus === 'completed'} />
+                          {followUpFacebookError && <p className="text-[12px] mt-1.5" style={{ color: 'var(--color-danger)' }}>{followUpFacebookError}</p>}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : facebookStatus === 'drafted' ? (
                   <div className="space-y-2.5">
@@ -1707,6 +2046,77 @@ export default function LeadDetailDrawer({ lead, onClose, onUpdated }) {
                     {facebookError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{facebookError}</p>}
                   </div>
                 )}
+              </Section>
+
+              <Section label="Replies">
+                <div className="space-y-3">
+                  {lead.replies && lead.replies.length > 0 && (
+                    <div className="space-y-2">
+                      {[...lead.replies].reverse().map((reply, i) => {
+                        const meta = reply.classification ? REPLY_LABEL_META[reply.classification.label] : null;
+                        return (
+                          <div key={i} className="rounded-2xl px-3 py-2.5" style={{ background: 'var(--color-surface-2)' }}>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-[11px] font-medium uppercase tracking-wider text-text-3">
+                                {REPLY_CHANNEL_LABELS[reply.channel] || reply.channel}
+                              </span>
+                              {meta && (
+                                <span className="text-[11px] font-semibold" style={{ color: meta.color }}>
+                                  {meta.label}
+                                  {reply.classification.confidence && ` · ${reply.classification.confidence}`}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[13px] text-text mb-1">{reply.text}</p>
+                            {reply.classification?.reasoning && (
+                              <p className="text-[12px] text-text-3">{reply.classification.reasoning}</p>
+                            )}
+                            {!reply.classification && (
+                              <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>Classification failed.</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <p className="text-[12px] text-text-3">
+                      Paste what a lead actually replied with — no channel here has an inbound API, so this is manual by design.
+                    </p>
+                    <div className="relative inline-block">
+                      <select
+                        value={replyChannel}
+                        onChange={(e) => setReplyChannel(e.target.value)}
+                        className="text-[12.5px] px-2.5 py-1.5 rounded-lg outline-none border appearance-none pr-6 cursor-pointer"
+                        style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
+                      >
+                        {REPLY_CHANNELS.map((c) => (
+                          <option key={c} value={c}>{REPLY_CHANNEL_LABELS[c]}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <textarea
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      placeholder="What did they say?"
+                      rows={3}
+                      maxLength={4000}
+                      className="w-full text-[13px] px-3 py-2 rounded-xl outline-none border resize-none"
+                      style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
+                    />
+                    <button
+                      onClick={handleLogReply}
+                      disabled={loggingReply || !replyText.trim()}
+                      className="flex items-center gap-1.5 h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-all duration-150 hover:brightness-110 disabled:opacity-60"
+                      style={{ background: 'var(--color-accent-3)', color: 'var(--color-on-accent-3)' }}
+                    >
+                      {loggingReply && <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />}
+                      {loggingReply ? 'Classifying…' : 'Log & classify reply'}
+                    </button>
+                    {replyError && <p className="text-[12px]" style={{ color: 'var(--color-danger)' }}>{replyError}</p>}
+                  </div>
+                </div>
               </Section>
             </div>
           </motion.div>

@@ -1,5 +1,9 @@
 import { groqFetch } from './groqClient.js';
 
+// See outreachGenerator.js's identical constant - bumped whenever SYSTEM_PROMPT/
+// FOLLOWUP_SYSTEM_PROMPT changes meaningfully, stored on every generated message.
+const PROMPT_VERSION = 'v1';
+
 const RESPONSE_SCHEMA = {
   name: 'whatsapp_outreach',
   strict: true,
@@ -98,6 +102,18 @@ const FOLLOWUP_SYSTEM_PROMPT =
   'nothing after it, sign off with exactly "The Colonbyte Team" - no "regards"/"best"/dash before it, no ' +
   'period after it.';
 
+// Same fix as outreachGenerator.js's STRUCTURE_VARIANTS, ported here for the same measured
+// reason: telling the model to "vary the opener" in the system prompt alone does not work in
+// practice, since a static prompt has no memory of what shape the last message used. Picking
+// one of these explicit shapes per call and putting it in the USER prompt forces an actual
+// different completion instead of hoping the model self-diversifies.
+const STRUCTURE_VARIANTS = [
+  'Open with the observation as its own short, plain sentence. Add the reasoning as a separate short sentence after it, not a dash-linked clause. End with a plain, direct question.',
+  'Open by leading with the question itself, weaving the observation into the same sentence as part of the reasoning behind asking it.',
+  'Open with a very short, blunt statement of the observation (5-10 words), no lead-in. Follow with one sentence of reasoning. Close with a curious, informal question.',
+  'Open with a quick, casual aside about their business before naming the specific observation, then the question.',
+];
+
 // includeDemo is a manual, per-message choice (a checkbox in the drawer), never AI-decided -
 // the demo is meant to stay held back until the user chooses to send it, typically after a
 // reply. See outreachGenerator.js's buildFacts for the same pattern.
@@ -187,10 +203,14 @@ function ensureSignOff(message) {
  * per-call choice (see buildFacts).
  */
 export async function generateWhatsappOutreach(lead, { includeDemo = false } = {}) {
-  const userPrompt = `Draft a WhatsApp outreach message for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}`;
+  const shape = STRUCTURE_VARIANTS[Math.floor(Math.random() * STRUCTURE_VARIANTS.length)];
+  const userPrompt =
+    `Draft a WhatsApp outreach message for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}\n\n` +
+    `Structural shape to use for THIS message specifically (different messages use different shapes - ` +
+    `follow this one rather than defaulting to your own default pattern): ${shape}`;
   const result = await callGroqForMessage(SYSTEM_PROMPT, userPrompt);
   if (!result) return { status: 'failed' };
-  return { ...result, status: 'drafted', generatedAt: new Date() };
+  return { ...result, promptVersion: PROMPT_VERSION, status: 'drafted', generatedAt: new Date() };
 }
 
 /**
@@ -204,5 +224,5 @@ export async function generateFollowUpWhatsapp(lead, { includeDemo = false } = {
     `Draft a brief WhatsApp follow-up for this lead:\n${JSON.stringify(buildFacts(lead, { includeDemo }), null, 2)}`;
   const result = await callGroqForMessage(FOLLOWUP_SYSTEM_PROMPT, userPrompt);
   if (!result) return { status: 'failed' };
-  return { ...result, status: 'drafted', generatedAt: new Date() };
+  return { ...result, promptVersion: PROMPT_VERSION, status: 'drafted', generatedAt: new Date() };
 }

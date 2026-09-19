@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import WebsiteStatusBadge from './WebsiteStatusBadge';
 import { OPPORTUNITY_LABELS } from '../constants/opportunityLabels';
+import { LEAD_STATUSES, STATUS_LABELS } from '../constants/leadStatus';
 
 function InstagramIcon(props) {
   return (
@@ -29,7 +30,18 @@ const FAINT = 'rgba(255,255,255,0.35)';
 const STATUS_COLOR = {
   new: MUTED,
   contacted: 'var(--color-accent)',
-  converted: 'var(--color-success)',
+  delivered: 'var(--color-accent)',
+  replied: 'var(--color-accent-2)',
+  positive_interest: 'var(--color-accent-3)',
+  qualified: 'var(--color-accent-3)',
+  meeting_scheduled: 'var(--color-accent-2)',
+  demo_sent: 'var(--color-accent-2)',
+  proposal_sent: 'var(--color-accent-2)',
+  negotiation: 'var(--color-accent-2)',
+  won: 'var(--color-success)',
+  lost: 'var(--color-danger)',
+  paused: FAINT,
+  do_not_contact: 'var(--color-danger)',
 };
 
 const container = { hidden: {}, show: { transition: { staggerChildren: 0.02 } } };
@@ -112,6 +124,15 @@ export default function LeadsTable({ leads, onStatusChange, onDelete, onSelectLe
                     </span>
                   )
                 )}
+                {lead.aiAnalysis?.requiresHumanReview && (
+                  <span
+                    className="ml-2 inline-flex items-center text-[11px] font-medium px-1.5 py-0.5 rounded"
+                    style={{ background: 'rgba(234,179,8,0.2)', color: '#eab308' }}
+                    title="Low-confidence AI qualification — worth a human double-check"
+                  >
+                    Needs review
+                  </span>
+                )}
               </td>
               <td className="py-2.5 px-4">
                 <div className="flex items-center gap-2">
@@ -167,12 +188,12 @@ export default function LeadsTable({ leads, onStatusChange, onDelete, onSelectLe
                   <select
                     value={lead.status}
                     onChange={e => onStatusChange(lead._id, e.target.value)}
-                    className="bg-transparent text-[12.5px] font-medium capitalize cursor-pointer outline-none appearance-none pr-4"
+                    className="bg-transparent text-[12.5px] font-medium cursor-pointer outline-none appearance-none pr-4"
                     style={{ color: STATUS_COLOR[lead.status], colorScheme: 'dark' }}
                   >
-                    <option value="new">new</option>
-                    <option value="contacted">contacted</option>
-                    <option value="converted">converted</option>
+                    {LEAD_STATUSES.map(s => (
+                      <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                    ))}
                   </select>
                   <svg
                     className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5"
