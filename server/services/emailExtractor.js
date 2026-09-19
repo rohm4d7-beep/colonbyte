@@ -20,7 +20,7 @@ const IGNORED_EXTENSIONS = /\.(png|jpg|jpeg|gif|svg|webp|css|js)$/i;
 // since outreach would then go to a dead address that isn't theirs.
 const JUNK_DOMAINS = /(sentry|wixpress|schema\.org|w3\.org|example\.(com|org|net)|domain\.com|yourdomain|godaddy|placeholder|test\.com|email\.com|mystore\.com|localhost|\.(png|jpg|jpeg|gif|svg|webp|css|js))$/i;
 
-function looksReal(email) {
+export function looksReal(email) {
   const domain = email.split('@')[1] || '';
   return !IGNORED_EXTENSIONS.test(email) && !JUNK_DOMAINS.test(domain) && !JUNK_DOMAINS.test(email);
 }
@@ -183,7 +183,7 @@ async function fetchPage(url) {
   return res.data;
 }
 
-function findEmails(html) {
+export function findEmails(html) {
   const $ = cheerio.load(html);
   const mailtoEmails = extractFromMailto($);
   if (mailtoEmails.length > 0) return mailtoEmails;
