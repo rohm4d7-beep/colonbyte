@@ -4,6 +4,7 @@ import TopBar from './components/TopBar';
 import CloudBackdrop from './components/CloudBackdrop';
 import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
+import Campaigns from './pages/Campaigns';
 import Login from './pages/Login';
 import API_BASE, { apiFetch } from './config';
 
@@ -46,6 +47,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/leads" element={<Leads />} />
+              <Route path="/campaigns" element={<Campaigns />} />
             </Routes>
           </main>
         </div>
